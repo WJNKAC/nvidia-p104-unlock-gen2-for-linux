@@ -115,45 +115,79 @@ sudo bash 00-whitelist.sh revert    # 最后还原设备表（如果第 0 步做
 
 ---
 
-## 四、空闲压功耗：让卡进 P8
+## 四、空闲压功耗：关掉自动登录就行
 
 **这张卡不干活的时候也一直停在 P0、SM 顶 1607 MHz、白烧 22 W。**
-只要有一个 Xorg 占着它，约 15 秒就进 P8，降到 ~7.8 W。
+但只要有一个 **Xorg** 占着它，15 秒内就进 P8，降到 ~7.8 W。
 
-**多数情况不需要额外操作**：
+**不需要装任何东西。** SDDM 默认的 X11 greeter 就是那个 Xorg：
+它由 sddm 自己拉起、`-noreset` 常驻，**登录进桌面之后也还在**。
 
-| 情况 | 做法 |
-|---|---|
-| X11 桌面会话 | 不用管，SDDM 起的 Xorg 已经占着卡了 |
-| 装了 bumblebee 且它留着 X | 不用管（`/etc/bumblebee/xorg.conf.nvidia` 就是这份配置） |
-| **Wayland 桌面**（本机 KDE 6） | 只有 `Xwayland`，不算 ⇒ 要自己起一个 |
-| 无桌面 | 要自己起一个 |
+| 状态 | P-state | SM | 功耗 |
+|---|---|---|---|
+| 无 Xorg | P0 | 1607 MHz | 22.3 ~ 22.6 W |
+| 有 Xorg（sddm 的 `:0`） | **P8** | 139 MHz | **7.4 ~ 8.0 W** |
+| Xorg 退出 | P0 | 1607 MHz | 22.4 W |
 
-本机是 Wayland，所以要起：
+省约 **14.6 W（-65%）**，可逆。
 
-```bash
-cd xorg
-sudo ./xorg-p104.sh start      # 自动用系统的 bumblebee 配置，起在 :8
-./xorg-p104.sh power           # 确认已进 P8
-sudo ./xorg-p104.sh stop       # 停掉 —— 会回到 P0 继续烧 22 W
+### 唯一要做的事：关掉 SDDM 自动登录
+
+`/etc/sddm.conf.d/*.conf` 里把 `[Autologin]` 清空：
+
+```ini
+[Autologin]
+Relabel=false
+Session=
+User=
 ```
 
-实测（P104-100 / 580.178.04）：
+然后重启（或 `systemctl restart sddm`）。开机后 sddm 会走完整的
+「起 display server → 起 greeter」流程，那个 Xorg 就一直在了。
 
-| 状态 | P-state | SM 时钟 | 功耗 |
-|---|---|---|---|
-| 没有专用 X | P0 | 1607 MHz | 22.3 ~ 22.6 W |
-| 起 X 后稳定 | **P8** | 139 MHz | **7.8 ~ 8.0 W** |
-| 停掉 X | P0 | 1607 MHz | 22.4 W |
+### 为什么自动登录时没有 Xorg
 
-省约 **14.6 W**（-65%），可逆。本项目不装 systemd service。
+自动登录会把这两步整个跳过 —— 实测日志对比（同一台机）：
 
-⚠ **这份配置不能放进 `/etc/X11/xorg.conf.d/`** —— 会让 P104 抢 screen 0，
-Intel 不被加载，X11 桌面黑屏（实测过，对比数据在 `xorg/README.md`）。
+```
+# 自动登录（Session=plasma, User=union）
+sddm-helper: pam_unix(sddm-autologin:session): session opened for user union
+sddm:        Session ".../plasma.desktop" selected ... --autologin
+grep -c "Display server starting"  →  0      ← 压根没起 Xorg
 
-> 顺带一句：想让**程序**用 P104 渲染是另一件事（PRIME offload，
-> `__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia <程序>`），
-> 和压功耗无关，也不会因为起了这个 X 就更快。见 `xorg/README.md`。
+# 关掉自动登录之后
+sddm: Display server starting...
+sddm: Display server started.
+sddm: Greeter starting...
+sddm-helper: Starting X11 session: "" "/usr/bin/sddm-greeter-qt6 ..."   ← X11
+grep -c "Display server starting"  →  1
+```
+
+登录进 Wayland 桌面后 greeter 会退出，但 sddm 那个 **Xorg 进程不退出**
+（`ps` 里能看到它的父进程就是 `/usr/bin/sddm`，参数带 `-noreset`），
+所以卡一直保持 P8。
+
+### ⚠ `Xwayland` 不算
+
+Wayland 会话里的 `Xwayland` 替代不了 Xorg —— 实测有 Xwayland 时卡**仍然**停在
+P0 烧 22 W。判据很简单：
+
+```bash
+pgrep -x Xorg        # 有输出 = 有真 Xorg；只看到 Xwayland 不算
+```
+
+没有 sddm 的机器（纯 console / 别的 DM）才需要自己起一个：
+
+```bash
+Xorg :8 -config /etc/bumblebee/xorg.conf.nvidia   # 装了 bumblebee 的话
+```
+
+（本仓库早先带过一套 `xorg/xorg-p104.sh` 做这件事，后来发现上面这条
+「关掉自动登录」就够、且更干净，已删除 —— `git show 5972b68` 可查。）
+
+> 顺带一句：想让**程序**用 P104 渲染是另一件事 —— PRIME offload，
+> `__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia <程序>`，
+> 和压功耗无关。
 
 ---
 
@@ -186,7 +220,6 @@ _lib.sh              公共部分（路径、颜色、寄存器读取、GPU 占�
 _patch.py            通用二进制补丁器（JSON 规格驱动，被 00/01 调用）
 offsets.sh           本版本的偏移与原始字节（纯变量，可 source）
 kernel/6.12.113/     内核模块源码（按内核版本分目录）
-xorg/                Xorg 配置 + 起停脚本（让程序跑在 P104 上）
 README.md            本文件
 ```
 

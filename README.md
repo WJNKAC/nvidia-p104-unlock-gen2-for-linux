@@ -561,9 +561,6 @@ LnkCap MaxSpeed=1  +  CAP2=0x0002  +  TLS=1  +  LNKSTA 恒为 1
 │       │       ├── gen2kr.c   ←       kretprobe + push + 守卫
 │       │       ├── Makefile
 │       │       └── gen2kr.service
-│       └── xorg/              ←   空闲压功耗：起个无头 X 让卡进 P8
-│           ├── p104-xorg.conf ←     无头 X 的配置（★ 别放 xorg.conf.d）
-│           └── xorg-p104.sh   ←     start/stop/status/power/gl
 ├── history/                   ← ★ 历史归档（见 history/README.md）
 │   ├── README.md              ← 归档索引与阅读顺序
 │   ├── pcie-gen2/             ← 整个课题工作目录（294 文件，含 3 个参考项目）
@@ -638,15 +635,20 @@ sudo bash 01-gen2-patch.sh check    # 必做：nvidia.ko 补丁
 sudo bash 02-gen2-push.sh status    # 必做：模块与链路状态
 ```
 
-不干活的时候这张卡也一直挂在 P0、白烧 22 W。有个 Xorg 占着它就进 P8（~7.8 W）：
+不干活的时候这张卡也一直挂在 P0、白烧 22 W。**有个 Xorg 占着它就进 P8（~7.8 W）**，
+而 sddm 的 X11 greeter 就是那个 Xorg —— 所以只要**关掉自动登录**，不用装任何东西：
 
-```bash
-# X11 桌面 / bumblebee 留着 X  → 什么都不用做
-# Wayland 桌面（本机就是）      → 起一个：
-cd drivers/580.178.04/xorg
-sudo ./xorg-p104.sh start     # 自动用系统的 bumblebee 配置，约 15 秒后 22 W → 7.8 W
-./xorg-p104.sh power          # 确认 P8
+```ini
+# /etc/sddm.conf.d/*.conf
+[Autologin]
+Session=
+User=
 ```
+
+自动登录时 sddm 会跳过 display server（`grep -c "Display server starting"` = 0），
+关掉之后它会起一个常驻的 Xorg（`-noreset`，父进程就是 sddm），登录后也不退出。
+
+⚠ Wayland 会话里的 `Xwayland` 不算 —— 实测有它时卡仍停在 P0。判据：`pgrep -x Xorg`。
 
 完整流程见 `drivers/580.178.04/README.md`。
 
