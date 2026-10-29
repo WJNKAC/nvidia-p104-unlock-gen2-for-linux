@@ -38,6 +38,18 @@ XORG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 XORG_CONF="${XORG_DIR}/p104-xorg.conf"
 XORG_BIN="/usr/lib/xorg/Xorg"
 
+# 系统自带的那份（装了 bumblebee 就有），内容与本目录这份等价 —— 优先用它
+BUMBLEBEE_CONF="/etc/bumblebee/xorg.conf.nvidia"
+
+# 用哪个配置：系统有就用系统的，没有才用本目录自带的
+pick_conf() {
+    if [ -f "${BUMBLEBEE_CONF}" ]; then
+        printf '%s' "${BUMBLEBEE_CONF}"
+    else
+        printf '%s' "${XORG_CONF}"
+    fi
+}
+
 P104_DISPLAY="${P104_DISPLAY:-:8}"
 DISP_NUM="${P104_DISPLAY#:}"          # :8 → 8
 
@@ -81,9 +93,16 @@ usage() {
 说明:
   这个 X 的用途是**压空闲功耗**：没有它，P104 在 0% 利用率下也停在 P0、
   SM 顶 1607 MHz、白烧 22 W；起 X 约 15 秒后进 P8，降到 ~7.8 W。
-  P104-100 没有物理输出，所以这个是"无头"X —— 看不到画面，但它存在的
-  目的就是让驱动把空闲的卡降档，不是用来跑程序。
-  配置文件 ${XORG_CONF##*/} 不能放 /etc/X11/xorg.conf.d/（会黑屏）。
+
+  配置优先用系统自带的 ${BUMBLEBEE_CONF}（装了 bumblebee 就有），
+  没有才用本目录的 p104-xorg.conf。两者等价 —— 原理是让驱动接管
+  一个 screen，卡的空闲功耗管理才会把它降进 P8。
+
+  ⚠ 任何时候都会有 Xorg 的场景（比如系统跑 X11 桌面会话），
+    根本不需要这个脚本 —— SDDM 自己起的那个 Xorg 就够。
+    本脚本只用于 Wayland 会话 / 无桌面这类"没有 Xorg"的情况。
+
+  ⚠ 本目录的 p104-xorg.conf 不能放 /etc/X11/xorg.conf.d/（会黑屏）。
 EOF
 }
 
@@ -193,11 +212,17 @@ do_start() {
         return 0
     fi
 
-    if [ ! -f "${XORG_CONF}" ]; then
-        err "找不到配置文件 ${XORG_CONF}"
+    local conf
+    conf="$(pick_conf)"
+    if [ ! -f "${conf}" ]; then
+        err "找不到配置文件 ${conf}"
         return 1
     fi
-    ok "配置 ${XORG_CONF##*/}"
+    if [ "${conf}" = "${BUMBLEBEE_CONF}" ]; then
+        ok "配置 ${conf}（系统自带，装了 bumblebee）"
+    else
+        ok "配置 ${conf}（本目录自带，系统没有 bumblebee）"
+    fi
 
     if [ ! -x "${XORG_BIN}" ]; then
         err "找不到 ${XORG_BIN}"
@@ -212,11 +237,11 @@ do_start() {
     ok "P104-100 在总线"
 
     hdr "启动 Xorg ${P104_DISPLAY}"
-    echo "   \$ ${XORG_BIN} ${P104_DISPLAY} -config ${XORG_CONF##*/}"
+    echo "   \$ ${XORG_BIN} ${P104_DISPLAY} -config ${conf}"
 
     # -ac：允许本地任意用户连（X 无输出、只跑渲染，本地使用足够）
     nohup "${XORG_BIN}" "${P104_DISPLAY}" \
-          -config "${XORG_CONF}" \
+          -config "${conf}" \
           -logfile "${LOG_FILE}" \
           -nolisten tcp \
           -ac \

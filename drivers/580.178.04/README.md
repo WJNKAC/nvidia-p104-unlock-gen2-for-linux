@@ -115,14 +115,25 @@ sudo bash 00-whitelist.sh revert    # 最后还原设备表（如果第 0 步做
 
 ---
 
-## 四、空闲压功耗：起一个无头 X server
+## 四、空闲压功耗：让卡进 P8
 
 **这张卡不干活的时候也一直停在 P0、SM 顶 1607 MHz、白烧 22 W。**
-起一个最简的"无头" X server 让驱动接管 screen，约 15 秒进 P8，降到 ~7.8 W。
+只要有一个 Xorg 占着它，约 15 秒就进 P8，降到 ~7.8 W。
+
+**多数情况不需要额外操作**：
+
+| 情况 | 做法 |
+|---|---|
+| X11 桌面会话 | 不用管，SDDM 起的 Xorg 已经占着卡了 |
+| 装了 bumblebee 且它留着 X | 不用管（`/etc/bumblebee/xorg.conf.nvidia` 就是这份配置） |
+| **Wayland 桌面**（本机 KDE 6） | 只有 `Xwayland`，不算 ⇒ 要自己起一个 |
+| 无桌面 | 要自己起一个 |
+
+本机是 Wayland，所以要起：
 
 ```bash
 cd xorg
-sudo ./xorg-p104.sh start      # 起在 :8
+sudo ./xorg-p104.sh start      # 自动用系统的 bumblebee 配置，起在 :8
 ./xorg-p104.sh power           # 确认已进 P8
 sudo ./xorg-p104.sh stop       # 停掉 —— 会回到 P0 继续烧 22 W
 ```
@@ -135,7 +146,7 @@ sudo ./xorg-p104.sh stop       # 停掉 —— 会回到 P0 继续烧 22 W
 | 起 X 后稳定 | **P8** | 139 MHz | **7.8 ~ 8.0 W** |
 | 停掉 X | P0 | 1607 MHz | 22.4 W |
 
-省约 **14.6 W**（-65%），可逆。开机后手动跑一次即可（本项目不装 systemd service）。
+省约 **14.6 W**（-65%），可逆。本项目不装 systemd service。
 
 ⚠ **这份配置不能放进 `/etc/X11/xorg.conf.d/`** —— 会让 P104 抢 screen 0，
 Intel 不被加载，X11 桌面黑屏（实测过，对比数据在 `xorg/README.md`）。

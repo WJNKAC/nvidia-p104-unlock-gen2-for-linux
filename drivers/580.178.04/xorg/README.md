@@ -1,6 +1,29 @@
 # P104-100 的空闲压功耗 Xorg
 
-**这个 X server 的用途是压空闲功耗，不是拿来跑程序的。**
+## 先说结论：多数情况不需要本目录
+
+省电的机制只有一条：**有一个真正的 Xorg 占着这张卡**。
+只要 Xorg 在，系统的 `/usr/share/X11/xorg.conf.d/nvidia-drm-outputclass.conf`
+（`MatchDriver "nvidia-drm"` → `Driver "nvidia"`）就会自动把 nvidia 驱动挂上，
+卡随即进 P8。**不需要任何自定义配置。**
+
+| 你的情况 | 要不要本目录 |
+|---|---|
+| 跑 **X11 桌面会话** | **不要**。SDDM 起的那个 Xorg 就已经占着卡了 |
+| 装了 **bumblebee** 并且它留着 X | **不要**。`/etc/bumblebee/xorg.conf.nvidia` 就是这份配置，本项目只是复用它 |
+| 跑 **Wayland 桌面**（如本机 KDE 6） | 需要。Wayland 下只有 `Xwayland`，**它不算**（实测卡仍停在 P0 烧 22 W） |
+| 无桌面（服务器 / 纯 console） | 需要 |
+
+本机的 `SDDM` 走 `Session=plasma` → `startplasma-wayland`，所以开机后
+`pgrep -x Xorg` 是 0，只有 `Xwayland :0`，卡就一直 P0 空烧。这才是本目录存在的理由。
+
+> ⚠ 顺带纠正一个常见的印象：**Wayland 下不会自动出现 Xorg**。
+> 有的机器看着「装完驱动就有个 Xorg」，是因为那台跑的是 X11 会话，
+> 或者 bumblebee 的 X 还留着（`KeepUnusedXServer=true`）。本机两者都不是。
+
+---
+
+## 效果
 
 没有它，P104-100 在 **0% 利用率、什么都不干的时候也一直停在 P0**，
 SM 时钟顶在 1607 MHz，白烧 **22 W**，等多久都不降。
@@ -133,6 +156,33 @@ P104 同理，只是没有输出口而已。
 
 ---
 
+## 为什么本目录的 conf 只是"备胎"
+
+本机装了 **bumblebee 3.2.1**，它的 `/etc/bumblebee/xorg.conf.nvidia`
+和本目录的 `p104-xorg.conf` 内容等价（`BusID "PCI:01:00:0"`、
+`AllowEmptyInitialConfiguration`、`UseDisplayDevice "none"` 全都有）——
+本项目这份就是从参考项目抄的，而参考项目抄的就是 bumblebee。
+
+所以脚本**优先用系统的**：
+
+```
+$ sudo ./xorg-p104.sh start
+✓ 配置 /etc/bumblebee/xorg.conf.nvidia（系统自带，装了 bumblebee）
+```
+
+只有系统没有 bumblebee 时才退回本目录那份。两条路实测都是 **P8 / 7.6~8.0 W**：
+
+| 用的配置 | 结果 |
+|---|---|
+| `/etc/bumblebee/xorg.conf.nvidia` | P8, 7.61 W, 139 MHz |
+| 本目录 `p104-xorg.conf` | P8, 7.8~8.0 W |
+
+另外实测确认：**完全不指定任何 Device 也能降**（Xorg 靠 OutputClass 自动挂 nvidia，
+只建 Intel 的 screen，P104 也被初始化）—— 那 60 行 Device 配置其实可以不要。
+保留它只是为了在有 Intel + NVIDIA 的机器上**只碰 NVIDIA、不抢 Intel 的 DRM master**。
+
+---
+
 ## ⚠ 千万别把它放进 `/etc/X11/xorg.conf.d/`
 
 这是实测踩出来的：
@@ -170,6 +220,15 @@ sudo ./xorg-p104.sh start
 想自己挂到别处（`~/.config/autostart`、rc.local、自己的 service）请自便，
 但别把 `p104-xorg.conf` 丢进 `xorg.conf.d/`。
 
+更"原生"的做法（如果确实想让它自动）：
+
+- **切成 X11 会话** —— SDDM 自己起 Xorg，本目录整个都不需要了
+- 或让 **bumblebee 留着 X**：`/etc/bumblebee/bumblebee.conf` 里
+  `KeepUnusedXServer=true`（本机当前是 `false`，所以不常驻）
+
+本机 `bumblebeed` 日志里那条 `No switching method available. The dedicated card
+will always be on.` 说明没有 bbswitch，卡没法断电 —— 只能靠降 P8 来省电。
+
 ---
 
 ## 附：顺带说一下"让程序跑在 P104 上"
@@ -196,7 +255,7 @@ __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia <程序>
 
 | 文件 | 说明 |
 |---|---|
-| `p104-xorg.conf` | 无头 X 的配置（`AllowEmptyInitialConfiguration`，关掉 `AutoAddDevices` 避免抢键鼠） |
+| `p104-xorg.conf` | 备胎配置。系统有 bumblebee 时不用它（脚本会自动选系统的） |
 | `xorg-p104.sh` | 起/停/看功耗的管理脚本 |
 
 X 的日志在 `/tmp/xorg-p104-<显示号>.log`。

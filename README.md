@@ -638,11 +638,13 @@ sudo bash 01-gen2-patch.sh check    # 必做：nvidia.ko 补丁
 sudo bash 02-gen2-push.sh status    # 必做：模块与链路状态
 ```
 
-不干活的时候这张卡也一直挂在 P0、白烧 22 W。起个无头 X 让它进 P8（~7.8 W）：
+不干活的时候这张卡也一直挂在 P0、白烧 22 W。有个 Xorg 占着它就进 P8（~7.8 W）：
 
 ```bash
+# X11 桌面 / bumblebee 留着 X  → 什么都不用做
+# Wayland 桌面（本机就是）      → 起一个：
 cd drivers/580.178.04/xorg
-sudo ./xorg-p104.sh start     # 约 15 秒后 22 W → 7.8 W
+sudo ./xorg-p104.sh start     # 自动用系统的 bumblebee 配置，约 15 秒后 22 W → 7.8 W
 ./xorg-p104.sh power          # 确认 P8
 ```
 
