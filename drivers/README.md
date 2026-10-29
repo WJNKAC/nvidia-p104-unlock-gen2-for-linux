@@ -1,5 +1,8 @@
 # 按驱动版本组织的补丁
 
+> ⚠ 与根目录一样，这里是**测试/研究记录**，不做维护承诺。
+> 补丁跟版本强绑定，作者不会主动适配新驱动 —— 新版本请自己重新定位。
+
 每个子目录对应**一个 NVIDIA 驱动版本**，里面是那个版本上验证过的全部补丁。
 思路参考 [vGPU-Unlock-patcher](https://github.com/VGPU-Community-Drivers/vGPU-Unlock-patcher)
 的 `patches/blob-<version>.diff` 约定：**偏移和字节都跟版本绑定，不能跨版本套用**。
