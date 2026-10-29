@@ -44,6 +44,59 @@
 
 ---
 
+## 按驱动版本复现（先看这个）
+
+所有补丁与内核模块都按**驱动版本**归档在 `drivers/` 下，目前只有
+`580.178.04`（唯一完整验证过的组合）。**在版本目录里按编号顺序执行即可**，
+不必回仓库根：
+
+```bash
+cd drivers/580.178.04
+
+# 00 前置（可选）：解除受限 SKU —— 只影响帧率/功耗，与 Gen2 无关
+sudo bash 00-whitelist.sh check
+sudo bash 00-whitelist.sh apply
+#   → 改完必须重建模块：cd /usr/src/nvidia-580.178.04 && sudo make -j$(nproc)
+
+# 01 必做：修补 nvidia.ko，让驱动不再把速率降回 Gen1（2 字节）
+sudo bash 01-gen2-patch.sh check
+sudo bash 01-gen2-patch.sh apply
+#   → 改完必须重载 nvidia 模块，或直接重启
+
+# 02 必做：加载内核模块并把链路推到 Gen2
+sudo bash 02-gen2-push.sh status
+sudo bash 02-gen2-push.sh start
+```
+
+三个脚本都支持反向操作，**还原时反向依次执行**：
+
+```bash
+sudo bash 02-gen2-push.sh stop
+sudo bash 01-gen2-patch.sh revert
+sudo bash 00-whitelist.sh revert    # 如果第 0 步做过
+```
+
+> ⚠ 每一步重载/重启前，先确认没有程序占用 GPU：
+> `fuser -v /dev/nvidia*`。有输出就先关掉（浏览器最常见），
+> 否则 `unbind` 会卡死内核、`kill -9` 无效，只能整机重启。
+
+每个版本的完整说明（偏移表、原理、验证数据）见
+`drivers/<版本>/README.md`。想换到别的驱动版本，看 `drivers/README.md`
+的定位方法 —— 偏移跟版本强绑定，**不能照搬**。
+
+### 不想分步？
+
+仓库根有一套一体化工具，干的是同一件事（改同一批字节），按你习惯选一条路走：
+
+```bash
+sudo bash bin/20-install.sh     # 打补丁 + 编译模块 + 推送，全自动
+```
+
+展开版（编译、自检、验证、回滚）见下面的「快速开始」。
+⚠ 两条路**不要混着重复打** —— 脚本会检测状态并拒绝已打过的。
+
+---
+
 ## 为什么需要解锁
 
 P104 的 vBIOS 把 PCIe 能力声明限制在 Gen1，驱动据此把链路初始化为 2.5GT/s。
@@ -205,7 +258,12 @@ sudo sh -c 'echo 0000:01:00.0 > /sys/bus/pci/drivers/nvidia/unbind
 
 详见 `docs/部署与持久化.md`。
 
-## 快速开始
+## 快速开始（仓库根的一体化工具）
+
+> 与上面的分步脚本是**两条等价的路**：
+> 分步脚本（`drivers/<版本>/00/01/02`）按阶段拆开，适合看清每一步做了什么；
+> 这里的 `bin/` 是一体化封装，适合按顺序跑完。
+> 两者改的是同一批字节，**不要混着重复打**（脚本会检测状态并拒绝）。
 
 ```bash
 # 先 clone 或解压到任意目录，然后 cd 进去
