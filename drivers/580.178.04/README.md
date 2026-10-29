@@ -115,7 +115,34 @@ sudo bash 00-whitelist.sh revert    # 最后还原设备表（如果第 0 步做
 
 ---
 
-## 四、提速：帧率与功耗
+## 四、让程序跑在 P104 上（Xorg）
+
+P104 是 3D controller（无物理输出），但装上驱动就能用来渲染。两条路：
+
+**推荐 · PRIME offload（零配置，不改变现有显示）**
+
+```bash
+__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia <程序>
+```
+
+实测：Intel HD P4600 负责显示，P104 负责渲染，
+`glxinfo` 报 `NVIDIA P104-100/PCIe/SSE2`，8192 MB，`direct rendering: Yes`。
+
+**备选 · 专用 X server**（程序不吃 offload 时用）
+
+```bash
+cd xorg
+sudo ./xorg-p104.sh start      # 起在 :8
+DISPLAY=:8 glxinfo -B
+sudo ./xorg-p104.sh stop
+```
+
+⚠ **这份配置不能放进 `/etc/X11/xorg.conf.d/`** —— 会让 P104 抢 screen 0，
+Intel 不被加载，X11 桌面黑屏（实测过，对比数据在 `xorg/README.md`）。
+
+---
+
+## 五、提速：帧率与功耗
 
 P1XX / CMP 矿卡除了 PCIe 受限，还有**另一个独立问题**：帧率卡在 ~40fps、功耗上不去。
 那是驱动每批次往 pushbuffer 写 `method 0x3998 = 0xF0(240)`（≈218µs 空转/批）造成的。
@@ -134,7 +161,7 @@ P1XX / CMP 矿卡除了 PCIe 受限，还有**另一个独立问题**：帧率�
 
 ---
 
-## 五、目录里的文件
+## 六、目录里的文件
 
 ```
 00-whitelist.sh      前置（可选）：改 nv-kernel.o_binary
@@ -144,6 +171,7 @@ _lib.sh              公共部分（路径、颜色、寄存器读取、GPU 占�
 _patch.py            通用二进制补丁器（JSON 规格驱动，被 00/01 调用）
 offsets.sh           本版本的偏移与原始字节（纯变量，可 source）
 kernel/6.12.113/     内核模块源码（按内核版本分目录）
+xorg/                Xorg 配置 + 起停脚本（让程序跑在 P104 上）
 README.md            本文件
 ```
 
@@ -160,7 +188,7 @@ README.md            本文件
 
 ---
 
-## 六、原理（想深究再看）
+## 七、原理（想深究再看）
 
 ### 01：nvidia.ko，2 字节
 
@@ -256,7 +284,7 @@ Windows 才需要在 6+ 个文件里重复替换（每个 UMD 各带一份副本
 
 ---
 
-## 七、风险
+## 八、风险
 
 | 风险 | 说明 |
 |---|---|

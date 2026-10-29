@@ -556,11 +556,14 @@ LnkCap MaxSpeed=1  +  CAP2=0x0002  +  TLS=1  +  LNKSTA 恒为 1
 │       ├── 02-gen2-push.sh    ←   必做：加载模块 + 推送链路（start/stop/status）
 │       ├── _lib.sh            ←   公共 bash 函数
 │       ├── _patch.py          ←   通用二进制补丁器（JSON 规格驱动）
-│       └── kernel/            ←   内核模块，按【内核版本】再分一层
-│           └── 6.12.113/      ←     在这套内核上编译并验证过
-│               ├── gen2kr.c   ←       kretprobe + push + 守卫
-│               ├── Makefile
-│               └── gen2kr.service
+│       ├── kernel/            ←   内核模块，按【内核版本】再分一层
+│       │   └── 6.12.113/      ←     在这套内核上编译并验证过
+│       │       ├── gen2kr.c   ←       kretprobe + push + 守卫
+│       │       ├── Makefile
+│       │       └── gen2kr.service
+│       └── xorg/              ←   让程序跑在 P104 上的 Xorg 配置与脚本
+│           ├── p104-xorg.conf ←     专用 X 的配置（★ 别放 xorg.conf.d）
+│           └── xorg-p104.sh   ←     start/stop/status/gl/offload
 ├── history/                   ← ★ 历史归档（见 history/README.md）
 │   ├── README.md              ← 归档索引与阅读顺序
 │   ├── pcie-gen2/             ← 整个课题工作目录（294 文件，含 3 个参考项目）
@@ -633,6 +636,16 @@ cd drivers/580.178.04
 sudo bash 00-whitelist.sh check     # 前置（可选）：受限 SKU 判定
 sudo bash 01-gen2-patch.sh check    # 必做：nvidia.ko 补丁
 sudo bash 02-gen2-push.sh status    # 必做：模块与链路状态
+```
+
+想让程序跑在 P104 上（与 Gen2 无关，独立功能）：
+
+```bash
+# 推荐：PRIME offload，零配置
+__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia <程序>
+
+# 或起一个专用 X（程序不吃 offload 时）
+cd drivers/580.178.04/xorg && sudo ./xorg-p104.sh start
 ```
 
 完整流程见 `drivers/580.178.04/README.md`。
