@@ -97,9 +97,9 @@ sudo bash bin/20-install.sh     # 打补丁 + 编译模块 + 推送，全自动
 
 ### heaven 测试（这里的针对 SKU 只 patch 用户态的每批次延迟，没有 patch 内核解除 SKU 限制）
 - Gen1 测试：
-  ![](./docs/pics/heaven/没过.png)
+  ![](./docs/pics/heaven/0.webp)
 - Gen2 测试：
-  ![](./docs/pics/heaven/过了.png)
+  ![](./docs/pics/heaven/1.webp)
 
 ---
 
