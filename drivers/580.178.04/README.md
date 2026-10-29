@@ -115,30 +115,34 @@ sudo bash 00-whitelist.sh revert    # 最后还原设备表（如果第 0 步做
 
 ---
 
-## 四、让程序跑在 P104 上（Xorg）
+## 四、空闲压功耗：起一个无头 X server
 
-P104 是 3D controller（无物理输出），但装上驱动就能用来渲染。两条路：
-
-**推荐 · PRIME offload（零配置，不改变现有显示）**
-
-```bash
-__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia <程序>
-```
-
-实测：Intel HD P4600 负责显示，P104 负责渲染，
-`glxinfo` 报 `NVIDIA P104-100/PCIe/SSE2`，8192 MB，`direct rendering: Yes`。
-
-**备选 · 专用 X server**（程序不吃 offload 时用）
+**这张卡不干活的时候也一直停在 P0、SM 顶 1607 MHz、白烧 22 W。**
+起一个最简的"无头" X server 让驱动接管 screen，约 15 秒进 P8，降到 ~7.8 W。
 
 ```bash
 cd xorg
 sudo ./xorg-p104.sh start      # 起在 :8
-DISPLAY=:8 glxinfo -B
-sudo ./xorg-p104.sh stop
+./xorg-p104.sh power           # 确认已进 P8
+sudo ./xorg-p104.sh stop       # 停掉 —— 会回到 P0 继续烧 22 W
 ```
+
+实测（P104-100 / 580.178.04）：
+
+| 状态 | P-state | SM 时钟 | 功耗 |
+|---|---|---|---|
+| 没有专用 X | P0 | 1607 MHz | 22.3 ~ 22.6 W |
+| 起 X 后稳定 | **P8** | 139 MHz | **7.8 ~ 8.0 W** |
+| 停掉 X | P0 | 1607 MHz | 22.4 W |
+
+省约 **14.6 W**（-65%），可逆。开机后手动跑一次即可（本项目不装 systemd service）。
 
 ⚠ **这份配置不能放进 `/etc/X11/xorg.conf.d/`** —— 会让 P104 抢 screen 0，
 Intel 不被加载，X11 桌面黑屏（实测过，对比数据在 `xorg/README.md`）。
+
+> 顺带一句：想让**程序**用 P104 渲染是另一件事（PRIME offload，
+> `__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia <程序>`），
+> 和压功耗无关，也不会因为起了这个 X 就更快。见 `xorg/README.md`。
 
 ---
 

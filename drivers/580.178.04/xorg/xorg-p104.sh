@@ -2,23 +2,29 @@
 # ============================================================
 # xorg-p104.sh —— 给 P104-100 起/停一个专用 X server
 #
-# 为什么需要它：P104-100 是 3D controller（无物理输出），但装了 NVIDIA 驱动后
-# 照样能起 X server（AllowEmptyInitialConfiguration）。这样可以：
-#   · 跑不吃 PRIME offload 的程序
-#   · 跑 benchmark 时整屏都是 P104
-#   · 用 nvidia-settings 调 P104 的 fan / power
+# 为什么需要它：**压空闲功耗**，不是拿来跑程序的。
+#
+#   实测（本机 P104-100 / 580.178.04）：
+#     没有专用 X ⇒ 0% 利用率也一直停在 P0、SM 顶 1607 MHz、22.3~22.6 W
+#     起了专用 X ⇒ 约 15 秒后进 P8、139 MHz、7.8~8.0 W（省 ~14.6 W）
+#     停掉 X     ⇒ 立刻回到 P0 / 22.4 W（可逆）
+#
+#   P104-100 是 3D controller（无物理输出），但装了驱动照样能起 X server
+#   （AllowEmptyInitialConfiguration）。驱动只有接管了显示子系统才会把
+#   空闲的卡降进 P8；没有 X 就一直挂在 P0 空烧。
 #
 # ★ 配置文件**不能**放 /etc/X11/xorg.conf.d/
 #   实测：放进去会抢 screen 0，导致 Intel 不被加载、X11 桌面黑屏。
 #   所以这里一律用 `Xorg :N -config <file>` 显式指定。
 #
 # 用法：
-#   ./xorg-p104.sh status      看 P104 的 X 是否在跑（只读）
+#   ./xorg-p104.sh status      看是否在跑 + 它的 GL 渲染器（只读）
+#   ./xorg-p104.sh power       看 P-state / 功耗 / 时钟（验证压功耗生效）
 #   ./xorg-p104.sh start       起一个专用 X（默认 :8）
 #   ./xorg-p104.sh stop        停掉
 #   ./xorg-p104.sh restart     stop + start
-#   ./xorg-p104.sh gl         在专用 X 上跑 glxinfo，确认渲染器是 P104
-#   ./xorg-p104.sh offload     打印 PRIME offload 的用法（不需要专用 X）
+#   ./xorg-p104.sh gl          在这个 X 上跑 glxinfo
+#   ./xorg-p104.sh offload     打印 PRIME offload 用法（跑程序时才需要，与省电无关）
 #
 # 环境变量：
 #   P104_DISPLAY  专用 X 的显示号，默认 :8
@@ -61,18 +67,22 @@ usage() {
 用法: [sudo] ./xorg-p104.sh <动作>
 
 动作:
-  status     看专用 X 是否在跑 + 它的 GL 渲染器（只读）
-  start      起一个专用 X（默认 ${P104_DISPLAY}，需 root）
-  stop       停掉
+  status     专用 X 是否在跑 + 它的 GL 渲染器 + 当前 P-state（只读）
+  power      看 P-state / 功耗 / 时钟，并判断是否已进 P8（只读）
+  start      起一个专用 X（默认 ${P104_DISPLAY}，需 root）→ 压空闲功耗
+  stop       停掉（会回到 P0，开始空烧 22 W）
   restart    stop + start
-  gl         在专用 X 上跑 glxinfo（确认是 P104）
-  offload    打印 PRIME offload 用法（不需要专用 X，推荐先试这个）
+  gl         在这个 X 上跑 glxinfo（确认是 P104）
+  offload    打印 PRIME offload 用法（要跑程序才看，与省电无关）
 
 环境变量:
   P104_DISPLAY   专用 X 的显示号，默认 :8（例：P104_DISPLAY=:9 ./xorg-p104.sh start）
 
 说明:
-  P104-100 没有物理输出，这个 X 是"无头"的 —— 看不到画面，但能做 OpenGL 渲染。
+  这个 X 的用途是**压空闲功耗**：没有它，P104 在 0% 利用率下也停在 P0、
+  SM 顶 1607 MHz、白烧 22 W；起 X 约 15 秒后进 P8，降到 ~7.8 W。
+  P104-100 没有物理输出，所以这个是"无头"X —— 看不到画面，但它存在的
+  目的就是让驱动把空闲的卡降档，不是用来跑程序。
   配置文件 ${XORG_CONF##*/} 不能放 /etc/X11/xorg.conf.d/（会黑屏）。
 EOF
 }
@@ -111,13 +121,64 @@ do_status() {
     p="$(x_pid)"
     [ -n "${p}" ] && echo "   pid = ${p}" && echo "   日志: ${LOG_FILE}"
 
+    # ★ 功耗要在 GL 查询**之前**读：
+    #   一次 glxinfo 就会把卡从 P8 唤醒到 P0（实测最高 59 W），
+    #   要 7~9 秒才回 P8。放后面读到的必然是 P0。
+    hdr "功耗状态"
+    print_power | sed 's/^/   /'
+
     # 关键：确认渲染器是 P104
     hdr "GL 渲染器"
+    echo "   （查 GL 会把卡唤醒到 P0，约 7~9 秒后自己回 P8）"
     local info
     if info="$(DISPLAY="${P104_DISPLAY}" glxinfo -B 2>&1)"; then
         echo "${info}" | grep -E "OpenGL vendor|OpenGL renderer|OpenGL core profile version|Dedicated video memory|direct rendering" | sed 's/^/   /'
     else
         warn "glxinfo 失败（可能没装 mesa-utils）"
+    fi
+}
+
+# ---------- power ----------
+# nvidia-smi 的 pstate / power.draw / clocks 是实时读的（PCIe 字段才是缓存）
+POWER_FIELDS="pstate,power.draw,clocks.sm,clocks.mem,temperature.gpu"
+
+print_power() {
+    local line
+    if ! line="$(nvidia-smi --query-gpu=${POWER_FIELDS} --format=csv,noheader 2>/dev/null)"; then
+        echo "nvidia-smi 不可用"
+        return 1
+    fi
+    echo "${line}"
+    case "${line}" in
+        P8*) echo "→ P8，空闲降档已生效" ;;
+        P0*) echo "→ P0，仍在满频待机（没起 X，或在初始化头 15 秒内）" ;;
+        *)   echo "→ 其他 P-state" ;;
+    esac
+}
+
+do_power() {
+    hdr "P104 功耗状态"
+
+    if is_running; then
+        echo "   专用 X ${P104_DISPLAY}：运行中"
+    else
+        echo "   专用 X ${P104_DISPLAY}：未运行（预期会停在 P0）"
+    fi
+    echo
+
+    local i
+    for i in 1 2 3; do
+        print_power | sed 's/^/   /'
+        [ "${i}" -lt 3 ] && sleep 1
+    done
+
+    echo
+    echo "   参考（本机实测）："
+    echo "     无专用 X   → P0, 1607 MHz, 22.3~22.6 W"
+    echo "     起 X 后    → P8,  139 MHz,  7.8~8.0 W"
+    if ! is_running; then
+        echo
+        echo "   省电: sudo $0 start"
     fi
 }
 
@@ -191,8 +252,8 @@ do_start() {
     fi
 
     echo
-    echo "   用法: DISPLAY=${P104_DISPLAY} <程序>"
-    echo "   停止: sudo $0 stop"
+    echo "   卡应在大约 15 秒内掉进 P8（功耗 22 W → ~7.8 W）"
+    echo "   确认: $0 power        停止: sudo $0 stop"
 }
 
 # ---------- stop ----------
@@ -237,6 +298,7 @@ do_stop() {
 
     rm -f "${PID_FILE}"
     ok "已停止"
+    warn "卡会回到 P0，空闲又开始烧 ~22 W（要省电就重新 start）"
 }
 
 # ---------- gl ----------
@@ -252,8 +314,10 @@ do_gl() {
 }
 
 # ---------- offload 说明 ----------
+# 注意：这是"要让程序跑在 P104 上"才用的，跟压空闲功耗是两件事。
+# 起了专用 X 也不会让 offload 变得更省电，反之亦然。
 do_offload() {
-    hdr "PRIME render offload（推荐，不需要专用 X）"
+    hdr "PRIME render offload（要跑程序才用，与省电无关）"
 
     echo "   Intel 负责显示、P104 负责渲染。当前桌面/Wayland 都能用："
     echo
@@ -270,6 +334,9 @@ do_offload() {
     echo "   实测（本机，Intel HD P4600 + P104-100）："
     echo "     默认            → Mesa Intel(R) HD Graphics P4600/P4700"
     echo "     offload 后      → NVIDIA P104-100/PCIe/SSE2，8192 MB，direct rendering Yes"
+    echo
+    echo "   ⚠ 在非活动的 Wayland 会话里（loginctl 的 Active=no）测帧率会得到假数字："
+    echo "     合成器不合成 ⇒ SwapBuffers 被节流 ⇒ 只有 ~2 FPS，核显原生也一样。"
 }
 
 # ============================================================
@@ -278,6 +345,7 @@ do_offload() {
 main() {
     case "${ACTION}" in
         status)   do_status ;;
+        power)    do_power ;;
         start)    do_start ;;
         stop)     do_stop ;;
         restart)  need_root restart; do_stop; sleep 1; do_start ;;

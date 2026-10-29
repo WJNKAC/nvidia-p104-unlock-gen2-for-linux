@@ -1,82 +1,135 @@
-# P104-100 的 Xorg 配置
+# P104-100 的空闲压功耗 Xorg
 
-P104-100 是 **3D controller（PCI class 0302）**，没有物理显示输出。
-但装了 NVIDIA 驱动后**照样能起 X server** —— 只要允许"空初始配置"，
-它会建一个没有 CRTC 的 X screen，OpenGL 渲染完全正常。
+**这个 X server 的用途是压空闲功耗，不是拿来跑程序的。**
 
-本目录提供两条路，**先用 offload，不够再用专用 X**。
-
----
-
-## 推荐：PRIME offload（不需要任何配置文件）
-
-Intel 核显负责输出，P104 负责渲染。当前桌面是 Wayland 还是 X11 都能用：
-
-```bash
-__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia <程序>
-```
-
-自测：
-
-```bash
-__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia glxinfo -B | grep -E "renderer|memory"
-```
-
-本机实测（Intel HD P4600 + P104-100，驱动 580.178.04）：
-
-| | 渲染器 |
-|---|---|
-| 不加环境变量 | `Mesa Intel(R) HD Graphics P4600/P4700 (HSW GT2)` |
-| 加 offload | `NVIDIA P104-100/PCIe/SSE2`，8192 MB，`direct rendering: Yes` |
-
-**这条路零配置、不改变现有显示，出问题只需去掉两个环境变量。**
-
-### ⚠ 在这个会话里测帧率，会得到一个假数字
-
-在**非活动的 Wayland 会话**里（`loginctl show-session <sid> -p Active` 为 `no`，
-典型场景是只通过 SSH 连过来、VT 不在这个会话上），合成器不合成，
-客户端的 `SwapBuffers` 被节流 ⇒ `glxgears` 只有 **~2 FPS**。
-
-**这不是 P104 或 offload 的问题 —— 核显原生跑同样只有 ~2 FPS**：
-
-| 命令（同一个非活动会话里） | 结果 |
-|---|---|
-| `glxgears`（Intel 原生） | 1.7 ~ 1.8 FPS |
-| offload 到 P104，`glxgears` | 2.1 ~ 2.2 FPS |
-| offload 到 P104 + `vblank_mode=0 __GL_SYNC_TO_VBLANK=0` | ~1900 FPS |
-| 专用 X（`:8`）上 `glxgears` | ~23000 FPS |
-
-⇒ offload 是好的（渲染器确实换成了 P104），只是这个会话里测不出真性能。
-要可信的数字，上专用 X，或先关 vblank。
+没有它，P104-100 在 **0% 利用率、什么都不干的时候也一直停在 P0**，
+SM 时钟顶在 1607 MHz，白烧 **22 W**，等多久都不降。
+起一个最简的"无头" X server 让驱动接管显示子系统后，约 15 秒进 **P8**，
+功耗掉到 **~7.8 W**。
 
 ---
 
-## 备选：专用 X server
+## 实测（本机 P104-100 / 驱动 580.178.04 / 内核 6.12.113）
 
-什么时候需要：
+| 状态 | P-state | SM 时钟 | 显存时钟 | 功耗 | 温度 |
+|---|---|---|---|---|---|
+| 没有专用 X | **P0** | 1607 MHz | 405 MHz | **22.3 ~ 22.6 W** | 38 ℃ |
+| 起 X 后头 15 s（初始化） | P0 | 1607 MHz | 5005 MHz | 52 ~ 59 W | 38→39 ℃ |
+| 起 X 后稳定 | **P8** | 139 MHz | 405 MHz | **7.8 ~ 8.0 W** | 37 ℃ |
+| 停掉 X | **P0** | 1607 MHz | 405 MHz | **22.4 W** | 37 ℃ |
 
-- 程序不吃 PRIME offload（少数老程序、直接开 `/dev/nvidia*` 的）
-- 想整屏都是 P104（跑 benchmark）
-- 想用 `nvidia-settings` 调 P104 的 fan / power
+净效果：**22.4 W → 7.8 W，省约 14.6 W（-65%）**，一整年按 0.6 元/度算 ≈ 77 元。
 
-```bash
-sudo ./xorg-p104.sh start      # 起在 :8
-DISPLAY=:8 glxinfo -B          # 应显示 NVIDIA P104-100
-sudo ./xorg-p104.sh stop
+双向都验过，是可逆的：起 X 降下去，停 X 立刻弹回 22.4 W。
+
+原始采样：
+
+```
+# 没有专用 X（只有桌面的 Xwayland，等于没有）
+P0, 22.36 W, 1607 MHz, 405 MHz, 38, 0 %
+P0, 22.61 W, 1607 MHz, 405 MHz, 38, 0 %
+P0, 22.45 W, 1607 MHz, 405 MHz, 38, 0 %
+
+# 起了专用 X，等过初始化
+P8, 7.91 W, 139 MHz, 405 MHz, 37, 0 %
+P8, 7.80 W, 139 MHz, 405 MHz, 37, 0 %
+P8, 7.76 W, 139 MHz, 405 MHz, 37, 0 %
 ```
 
-完整动作：
+> 说明：这里用的是 `nvidia-smi --query-gpu=pstate,power.draw,clocks.*`，
+> 这些字段是实时读取的。**但同一命令里的 PCIe 字段是驱动缓存，不能用来判链路速率**
+> （见 `docs/判据` 那套规矩）。
+
+### ⚠ 一个容易误判的点：`glxinfo` 会把卡唤醒
+
+任何 GL 操作都会把卡从 P8 拉回 P0。实测跑一次 `glxinfo -B` 之后：
+
+```
+基线          P8,  7.81 W, 139 MHz
++1s  glxinfo  P0, 59.17 W, 1607 MHz     ← 被唤醒
++4s           P0, 53.57 W, 1075 MHz
++7s           P8,  7.57 W, 240 MHz      ← 自己回落
++10s          P8,  7.81 W, 139 MHz
+```
+
+要 **7~9 秒**才回 P8。所以：
+
+- 看功耗用 `./xorg-p104.sh power`，**别紧接着跑 `glxinfo`**
+- `status` 已经排成「先读功耗、后查 GL」，并会提示这一点
+- 刚被唤醒时读到 P0 不代表没生效，等十几秒再看
+
+---
+
+## 用法
+
+```bash
+sudo ./xorg-p104.sh start      # 起在 :8，之后卡会自己掉进 P8
+./xorg-p104.sh power           # 看 P-state / 功耗 / 时钟（只读，不用 root）
+sudo ./xorg-p104.sh stop       # 停掉 —— 卡会回到 P0 继续烧 22 W
+```
 
 | 动作 | 说明 |
 |---|---|
-| `status` | 是否在跑 + GL 渲染器（只读，不需要 root） |
-| `start` | 起一个专用 X（默认 `:8`，需 root） |
-| `stop` | 停掉 |
-| `restart` | stop + start |
-| `gl` | 在专用 X 上跑 `glxinfo -B` |
-| `offload` | 打印 offload 用法（就是上面那条命令） |
+| `status` | X 是否在跑 + 它的 GL 渲染器 + 当前 P-state（只读） |
+| `power` | 采样 P-state / 功耗 / 时钟，并直接告诉你进没进 P8（只读） |
+| `start` | 起专用 X（默认 `:8`，需 root） |
+| `stop` | 停掉（会回到 P0） |
+| `restart` | `stop` + `start` |
+| `gl` | 在这个 X 上跑 `glxinfo -B` |
+| `offload` | 打印 PRIME offload 用法（要跑程序才看，与省电无关） |
 
-改显示号：`P104_DISPLAY=:9 sudo ./xorg-p104.sh start`
+换显示号：`P104_DISPLAY=:9 sudo ./xorg-p104.sh start`
+
+典型输出：
+
+```
+$ sudo ./xorg-p104.sh start
+── 检查前置 ──
+✓ 配置 p104-xorg.conf
+✓ Xorg 二进制
+✓ P104-100 在总线
+
+── 启动 Xorg :8 ──
+   $ /usr/lib/xorg/Xorg :8 -config p104-xorg.conf
+✓ 已启动
+
+── 验证渲染器 ──
+   OpenGL renderer string: NVIDIA P104-100/PCIe/SSE2
+✓ 渲染器正确
+
+   卡应在大约 15 秒内掉进 P8（功耗 22 W → ~7.8 W）
+   确认: ./xorg-p104.sh power        停止: sudo ./xorg-p104.sh stop
+```
+
+```
+$ ./xorg-p104.sh power
+── P104 功耗状态 ──
+   专用 X :8：运行中
+   P8, 7.81 W, 139 MHz, 405 MHz, 37
+   → P8，空闲降档已生效
+```
+
+---
+
+## 为什么"起个没人看的 X"就能省电
+
+P104-100 是 **3D controller（PCI class 0302）**，没有物理显示输出。
+按常理会觉得没输出的卡无所谓显示子系统 —— 但驱动不是这么想的：
+**只有接管了一个 screen，驱动的动态功耗管理才会把空闲的卡往下调**。
+没有 X，卡就一直挂在 P0 满频待机。
+
+所以要的不是"能显示"，而只是**让驱动认领这个 screen**。这就是为什么配置里要
+`AllowEmptyInitialConfiguration`（允许没有 CRTC/输出的空配置）：
+
+```conf
+Option "AllowEmptyInitialConfiguration" "true"
+Option "UseDisplayDevice" "none"
+```
+
+不写这两行，驱动直接报 `No devices detected / No screens found` 退出。
+
+顺带说明：**"0302 就不能起 X" 是错的**。P106 装上驱动后本来就有 Xorg，
+P104 同理，只是没有输出口而已。
 
 ---
 
@@ -96,11 +149,46 @@ X11 桌面直接黑屏。
 | GL 渲染器 | NVIDIA P104-100 | Mesa Intel HD P4600 |
 | Intel 是否加载 | **完全没有** | 是 |
 
-所以本目录的配置**一律用 `Xorg :N -config <file>` 显式指定**，
-脚本已经这么做了。
+所以本目录的配置**一律用 `Xorg :N -config <file>` 显式指定**，脚本已经这么做了。
 
-（顺带说明：Bumblebee 的 `/etc/bumblebee/xorg.conf.nvidia` 也是同样思路 ——
-它放在 `/etc/bumblebee/` 而不是 `xorg.conf.d/`，由 bumblebee 按需传给 Xorg。）
+（Bumblebee 的 `/etc/bumblebee/xorg.conf.nvidia` 也是同样思路 —— 放在
+`/etc/bumblebee/` 而不是 `xorg.conf.d/`，由 bumblebee 按需传给 Xorg。）
+
+---
+
+## 开机后要不要自动起
+
+本仓库**不装 systemd service**（这个项目的原则是不动系统）。
+
+开机后手动跑一次即可：
+
+```bash
+sudo ./xorg-p104.sh start
+```
+
+它是幂等的，重复跑只会提示"已在运行"。
+想自己挂到别处（`~/.config/autostart`、rc.local、自己的 service）请自便，
+但别把 `p104-xorg.conf` 丢进 `xorg.conf.d/`。
+
+---
+
+## 附：顺带说一下"让程序跑在 P104 上"
+
+这和压功耗是**两件独立的事**，起了这个 X 也不会让程序更快或更省电。
+
+如果确实要让程序用 P104 渲染（Intel 负责显示），用 PRIME offload，零配置：
+
+```bash
+__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia <程序>
+```
+
+`glxinfo -B` 会从 `Mesa Intel(R) HD Graphics P4600/P4700` 变成
+`NVIDIA P104-100/PCIe/SSE2`（8192 MB，`direct rendering: Yes`）。
+
+> ⚠ 在**非活动的 Wayland 会话**里（`loginctl show-session <sid> -p Active` 为 `no`，
+> 典型是只通过 SSH 连过来）测帧率会得到假数字：合成器不合成，
+> `SwapBuffers` 被节流 ⇒ 只有 ~2 FPS。**核显原生跑同样只有 ~2 FPS**，
+> 所以这不是 P104 或 offload 的问题。
 
 ---
 
@@ -108,41 +196,9 @@ X11 桌面直接黑屏。
 
 | 文件 | 说明 |
 |---|---|
-| `p104-xorg.conf` | 专用 X 的配置（含 `ServerLayout` 关掉 `AutoAddDevices`，避免抢键鼠） |
-| `xorg-p104.sh` | 起/停专用 X 的管理脚本 |
+| `p104-xorg.conf` | 无头 X 的配置（`AllowEmptyInitialConfiguration`，关掉 `AutoAddDevices` 避免抢键鼠） |
+| `xorg-p104.sh` | 起/停/看功耗的管理脚本 |
 
 X 的日志在 `/tmp/xorg-p104-<显示号>.log`。
-
----
-
-## 实测记录
-
-在**刚重启、卡还是原厂 Gen1 状态**（`LnkCap MaxSpeed=2.5GT/s`，gen2kr 未加载）下验证，
-说明 Xorg 这条路**不依赖 Gen2 解锁**：
-
-```
-$ sudo ./xorg-p104.sh status
-── 专用 X :8 ──
-   未运行
-
-$ sudo ./xorg-p104.sh start
-── 启动 Xorg :8 ──
-   $ /usr/lib/xorg/Xorg :8 -config p104-xorg.conf
-✓ 已启动
-
-── 验证渲染器 ──
-   direct rendering: Yes
-       Dedicated video memory: 8192 MB
-   OpenGL renderer string: NVIDIA P104-100/PCIe/SSE2
-✓ 渲染器正确
-
-$ DISPLAY=:8 glxgears
-115937 frames in 5.0 seconds = 23187.330 FPS
-116368 frames in 5.0 seconds = 23273.553 FPS
-
-$ sudo ./xorg-p104.sh stop
-✓ 已停止
-```
-
-启动专用 X 期间，当前 KDE Wayland 会话不受影响（`kwin_wayland` 仍在），
-键鼠也没有被抢（`AutoAddDevices "false"` 生效）；停止后 `Xorg` 进程数归 0。
+启动期间当前 KDE Wayland 会话不受影响（`kwin_wayland` 仍在），键鼠也不会被抢；
+停止后 `Xorg` 进程数归 0。

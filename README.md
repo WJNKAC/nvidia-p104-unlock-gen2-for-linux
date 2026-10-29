@@ -561,9 +561,9 @@ LnkCap MaxSpeed=1  +  CAP2=0x0002  +  TLS=1  +  LNKSTA 恒为 1
 │       │       ├── gen2kr.c   ←       kretprobe + push + 守卫
 │       │       ├── Makefile
 │       │       └── gen2kr.service
-│       └── xorg/              ←   让程序跑在 P104 上的 Xorg 配置与脚本
-│           ├── p104-xorg.conf ←     专用 X 的配置（★ 别放 xorg.conf.d）
-│           └── xorg-p104.sh   ←     start/stop/status/gl/offload
+│       └── xorg/              ←   空闲压功耗：起个无头 X 让卡进 P8
+│           ├── p104-xorg.conf ←     无头 X 的配置（★ 别放 xorg.conf.d）
+│           └── xorg-p104.sh   ←     start/stop/status/power/gl
 ├── history/                   ← ★ 历史归档（见 history/README.md）
 │   ├── README.md              ← 归档索引与阅读顺序
 │   ├── pcie-gen2/             ← 整个课题工作目录（294 文件，含 3 个参考项目）
@@ -638,14 +638,12 @@ sudo bash 01-gen2-patch.sh check    # 必做：nvidia.ko 补丁
 sudo bash 02-gen2-push.sh status    # 必做：模块与链路状态
 ```
 
-想让程序跑在 P104 上（与 Gen2 无关，独立功能）：
+不干活的时候这张卡也一直挂在 P0、白烧 22 W。起个无头 X 让它进 P8（~7.8 W）：
 
 ```bash
-# 推荐：PRIME offload，零配置
-__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia <程序>
-
-# 或起一个专用 X（程序不吃 offload 时）
-cd drivers/580.178.04/xorg && sudo ./xorg-p104.sh start
+cd drivers/580.178.04/xorg
+sudo ./xorg-p104.sh start     # 约 15 秒后 22 W → 7.8 W
+./xorg-p104.sh power          # 确认 P8
 ```
 
 完整流程见 `drivers/580.178.04/README.md`。
