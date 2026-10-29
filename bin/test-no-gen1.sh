@@ -63,7 +63,7 @@ echo "  起点: $(st)"
 
 echo
 echo "======== 3. gen2kr push 到 Gen2 ========"
-cd "$D/kmod" && insmod gen2kr.ko && echo "  insmod OK"
+cd "$D" && insmod build/gen2kr.ko && echo "  insmod OK"
 sleep 1
 echo "$DEV" > /sys/bus/pci/drivers/nvidia/unbind 2>/dev/null
 sleep 0.8

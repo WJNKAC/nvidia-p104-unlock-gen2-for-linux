@@ -105,7 +105,11 @@ check_probes() {
         warn "build/gen2kr.ko 缺失 → 先跑 bin/build.sh"
     fi
 
-    [ -f "${KMOD_DIR}/gen2kr.ko" ] && ok "kmod/gen2kr.ko 已就绪"
+    if [ -n "${KMOD_DIR}" ]; then
+        ok "模块源码目录 ${KMOD_DIR#${PKG_ROOT}/}"
+    else
+        warn "找不到内核模块源码目录（drivers/*/kernel/*/）"
+    fi
 }
 
 # 检查 gen2kr 当前加载状态与参数

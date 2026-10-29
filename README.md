@@ -194,7 +194,7 @@ sudo sh -c 'echo 0000:01:00.0 > /sys/bus/pci/drivers/nvidia/unbind
 |---|---|---|
 | **A. 手动**（当前） | 开机后跑 `bin/push.sh`（约 3 秒，不重载 nvidia） | 无 |
 | B. modprobe softdep | 给 gen2kr 加 init 时推送 + `/etc/modprobe.d/nvidia.conf` 写 `softdep nvidia post: gen2kr` | 低。**未实现、未验证** |
-| C. systemd service | 装 `kmod/gen2kr.service` | 高（用户要求不装） |
+| C. systemd service | 装 `drivers/<版本>/kernel/<内核>/gen2kr.service` | 高（用户要求不装） |
 
 详见 `docs/部署与持久化.md`。
 
@@ -466,11 +466,6 @@ LnkCap MaxSpeed=1  +  CAP2=0x0002  +  TLS=1  +  LNKSTA 恒为 1
 │   ├── trace-mode1.sh         ← perf 四点断点，判 mode=1 走哪条路
 │   ├── measure-recovery.sh    ← 量化"降级→恢复"耗时
 │   └── soak.sh                ← 长跑（N 轮降级-恢复 + 周期带宽）
-├── kmod/
-│   ├── gen2kr.c               ← kretprobe + push + 守卫（含 COMMIT 防护）
-│   ├── Makefile               ← obj-m 只含 gen2kr
-│   ├── gen2kr.service         ← systemd 单元（可选，未启用）
-│   └── legacy/                ← 早期失败方案（gen2kp.c / gen2hw.c）
 ├── src/
 │   ├── minictx.c              ← 零 DMA 上下文探针
 │   └── bwtest2.c              ← 带宽测试
@@ -481,21 +476,28 @@ LnkCap MaxSpeed=1  +  CAP2=0x0002  +  TLS=1  +  LNKSTA 恒为 1
 │   ├── 实验历程.md
 │   ├── 故障排查.md
 │   └── 部署与持久化.md
-├── drivers/                   ← ★ 按驱动版本组织的补丁（见 drivers/README.md）
-│   └── 580.178.04/            ← 唯一完整验证过的版本
-│       ├── README.md          ←   该版本的简介 + 偏移表 + 验证数据
+├── drivers/                   ← ★ 按版本组织的补丁与内核模块（见 drivers/README.md）
+│   └── 580.178.04/            ← 唯一完整验证过的驱动版本
+│       ├── README.md          ←   简介 + 偏移表 + 验证数据
 │       ├── offsets.sh         ←   机器可读的偏移（可 source）
-│       └── minimal.sh         ←   最小实现（check/apply/revert，自包含）
+│       ├── minimal.sh         ←   最小实现（check/apply/revert，自包含）
+│       └── kernel/            ←   内核模块，按【内核版本】再分一层
+│           └── 6.12.113/      ←     在这套内核上编译并验证过
+│               ├── gen2kr.c   ←       kretprobe + push + 守卫
+│               ├── Makefile
+│               └── gen2kr.service
 ├── history/                   ← ★ 历史归档（见 history/README.md）
 │   ├── README.md              ← 归档索引与阅读顺序
 │   ├── pcie-gen2/             ← 整个课题工作目录（294 文件，含 3 个参考项目）
 │   ├── reports/               ← 27 篇 Gen2 核心报告（175-201）
 │   ├── snapshots/             ← STATUS/README 的 Gen2 章节快照
 │   ├── refs/                  ← 背景材料
+│   ├── legacy/                ← 失败实验（test-declare-heal.sh）
+│   ├── kmod-legacy/           ← 早期内核模块方案（gen2kp / gen2hw）
+│   ├── logs/                  ← 复现长跑日志 + 事故记录
+│   ├── git-建立记录.md        ← 仓库建立过程（面向维护者）
 │   └── ko-local-说明.md       ← 分析用 .ko 的版本信息（大文件未归档）
-├── legacy/                    ← 失败实验（test-declare-heal.sh）
-├── logs/                      ← 复现时的长跑日志
-└── build/                     ← 编译产物（build.sh 生成）
+└── build/                     ← 编译产物（build.sh 生成，不入库）
 ```
 
 ## 脚本结构约定
@@ -595,7 +597,7 @@ RM 偏移在 6.12 上**未变**：`_nv017105rm` = `.text+0x127d60`。
 | 类别 | 说明 |
 |---|---|
 | 脚本（`bin/*.sh`、`bin/*.py`） | AI 编写 |
-| 内核模块（`kmod/gen2kr.c`） | AI 编写 |
+| 内核模块（`drivers/<版本>/kernel/<内核>/gen2kr.c`） | AI 编写 |
 | 二进制补丁（`bin/patch_no_gen1.py` 及补丁本身） | AI 分析逆向、定位偏移、设计改法 |
 | 文档（`docs/*.md`、本 README） | AI 编写 |
 | 逆向分析结论（调用链、寄存器语义、能力位） | AI 通过 perf 断点 + 静态反汇编得出 |

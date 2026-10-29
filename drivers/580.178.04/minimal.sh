@@ -4,14 +4,17 @@
 #
 # 三个独立补丁，可单独使用：
 #   gen2       2 字节   让驱动不再把 PCIe 速率降回 Gen1
-#                       （链路还要靠 kmod/gen2kr.ko 推上去，本脚本不管那部分）
-#   delay      1 字节   跳过 gr3d 每批次延迟命令（帧率 ~40fps 的上限）
+#                       （链路还要靠 gen2kr.ko 推上去，本脚本不管那部分）
 #   whitelist  10 字节  从内核受限设备表里抹掉 P1XX 的 device ID（治本）
+#
+# ★ 关于「每批次延迟」（gr3d delay / 帧率 ~40fps 上限）：
+#   那是**另一个课题**（P106 功耗/延迟），不在本项目范围内。本目录不再提供
+#   那个补丁的实现，只在 README 里说明它与本项目的关系。
 #
 # 用法：
 #   sudo bash minimal.sh <目标> <动作>
 #
-#   目标：gen2 | delay | whitelist | all
+#   目标：gen2 | whitelist | all
 #   动作：check | apply | revert
 #
 #   例：
@@ -32,7 +35,7 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OFFSETS_FILE="${SCRIPT_DIR}/offsets.sh"
 
-VALID_TARGETS=(gen2 delay whitelist)
+VALID_TARGETS=(gen2 whitelist)
 VALID_ACTIONS=(check apply revert)
 
 # 退出码
@@ -64,9 +67,8 @@ usage() {
 
 目标:
   gen2        PCIe Gen2 解锁（nvidia.ko，2 字节）
-  delay       跳过 gr3d 每批次延迟（libnvidia-glcore.so，1 字节）
   whitelist   内核受限设备表（nv-kernel.o_binary，10 字节）
-  all         对三个都执行
+  all         对两个都执行
 
 动作:
   check       只读检查当前状态
@@ -75,7 +77,6 @@ usage() {
 
 例:
   sudo bash minimal.sh gen2 check
-  sudo bash minimal.sh delay apply
   sudo bash minimal.sh all check
 EOF
 }
@@ -118,25 +119,6 @@ spec_gen2() {
 EOF
 }
 
-# 构造 delay 的 JSON 规格
-spec_delay() {
-    cat <<EOF
-{
-  "name": "delay",
-  "desc": "跳过 gr3d 每批次延迟命令（~40fps 上限）",
-  "path": "${GLOCORE_PATH}",
-  "anchor": {"mode": "offset", "off": 0},
-  "edits": [
-    {"off": $(( DELAY_OFFSET )), "old": "0x74", "new": "0xeb",
-     "what": "je -> jmp（无条件跳过延迟命令）"}
-  ],
-  "md5_before": "${DELAY_MD5_BEFORE}",
-  "md5_after": "${DELAY_MD5_AFTER}",
-  "after_note": "不需要重启，重新启动图形程序即可生效"
-}
-EOF
-}
-
 # 构造 whitelist 的 JSON 规格
 spec_whitelist() {
     local edits="" i off dev
@@ -167,7 +149,6 @@ EOF
 spec_for() {
     case "$1" in
         gen2)      spec_gen2 ;;
-        delay)     spec_delay ;;
         whitelist) spec_whitelist ;;
         *)         err "未知目标 $1"; exit "${EXIT_USAGE}" ;;
     esac

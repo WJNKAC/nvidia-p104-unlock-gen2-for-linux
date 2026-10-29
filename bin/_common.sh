@@ -10,11 +10,44 @@
 PKG_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="$PKG_ROOT/build"
 SRC_DIR="$PKG_ROOT/src"
-KMOD_DIR="$PKG_ROOT/kmod"
-LOG_DIR="$PKG_ROOT/logs"
+DRIVERS_DIR="$PKG_ROOT/drivers"
 
 KVER="$(uname -r)"
 KO="/lib/modules/${KVER}/updates/dkms/nvidia.ko"
+
+# ---------- 定位内核模块源码目录 ----------
+#
+# 内核模块按「驱动版本 / 内核版本」两级归档：
+#   drivers/<驱动版本>/kernel/<内核版本>/gen2kr.c
+#
+# 为什么内核版本要进目录名：模块的**编译产物**与内核头强绑定
+# （不同内核的 ABI、符号、结构体偏移都可能不同），
+# 源码本身用的是稳定 API，但「在哪编过、验过」必须能一眼看出。
+#
+# 匹配规则：
+#   1. 优先找与当前内核完全对应的目录（uname -r 去掉 +deb13-amd64 这类后缀）
+#   2. 找不到就退到「仓库里只有一套」的情况
+#   3. 都没有则 KMOD_DIR 为空，调用方自行报错
+KVER_SHORT="${KVER%%+*}"        # 6.12.113+deb13-amd64 → 6.12.113
+
+find_kmod_dir() {
+    local d
+
+    # 1) 精确匹配当前内核
+    for d in "${DRIVERS_DIR}"/*/kernel/"${KVER_SHORT}"; do
+        [ -d "${d}" ] && { echo "${d}"; return 0; }
+    done
+
+    # 2) 退路：只有一套就先用它（会在 10-check 里提示版本可能不符）
+    for d in "${DRIVERS_DIR}"/*/kernel/*; do
+        [ -d "${d}" ] && { echo "${d}"; return 0; }
+    done
+
+    return 1
+}
+
+KMOD_DIR="$(find_kmod_dir || true)"
+LOG_DIR="$PKG_ROOT/history/logs"
 
 DEV_BDF="0000:01:00.0"
 DEV_SHORT="01:00.0"

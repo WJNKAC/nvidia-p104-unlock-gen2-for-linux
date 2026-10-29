@@ -22,9 +22,6 @@ GPU_VERIFIED="P104-100 (10de:1b87)"
 # nvidia.ko（gen2 补丁）
 KO_PATH="/lib/modules/$(uname -r)/updates/dkms/nvidia.ko"
 
-# libnvidia-glcore.so（delay 补丁）
-GLOCORE_PATH="/usr/lib/x86_64-linux-gnu/libnvidia-glcore.so.580.178.04"
-
 # nv-kernel.o_binary（whitelist 补丁的输入，不是最终模块）
 NVKERNEL_PATH="/usr/src/nvidia-580.178.04/nvidia/nv-kernel.o_binary"
 
@@ -52,21 +49,6 @@ GEN2_MD5_BEFORE="7f6805ed15f1ae8122aa78e65a5d48a0"
 GEN2_MD5_AFTER="514de9d4fdd7c407a088f1baf4b62f04"
 
 # ============================================================
-# delay：1 字节，固定偏移
-# ============================================================
-DELAY_OFFSET=0xb51c82        # je 的 opcode 位置
-DELAY_ORIG=0x74              # je  rel8
-DELAY_NEW=0xeb               # jmp rel8
-
-# 判据指令（只读参考，用于人工确认位置对不对）
-DELAY_CONTEXT_CMP_INSN=0xb51c7b    # cmp byte [rax+0x20b],0
-DELAY_CONTEXT_JMP_TARGET=0xb51cb0
-
-# md5
-DELAY_MD5_BEFORE="18f43321d6fcf95524cfb7e12cb221f2"
-DELAY_MD5_AFTER="45b06947204cbd586a5d45a463bb69ba"
-
-# ============================================================
 # whitelist：5 个 dword，固定偏移
 # ============================================================
 WHITELIST_OFFSET=0x5cfdfcc
@@ -88,5 +70,4 @@ WHITELIST_MD5_AFTER="f3480248f7a70f7501fd14ac90582ef1"
 # 文件大小（用于「是不是这个版本」的快速判断）
 # ============================================================
 KO_SIZE=157271160
-GLOCORE_SIZE=37062312
 NVKERNEL_SIZE=112677456

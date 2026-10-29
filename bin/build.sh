@@ -21,8 +21,8 @@ set -u
 # ============================================================
 # 1. 变量
 # ============================================================
-PKG_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-KVER="$(uname -r)"
+source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
+
 KERNEL_BUILD_DIR="/lib/modules/${KVER}/build"
 
 DO_USER_ONLY=0          # 1 = 只编用户态探针
@@ -87,7 +87,22 @@ build_kernel_module() {
         return 1
     fi
 
-    cd "${PKG_ROOT}/kmod" || return 1
+    if [ -z "${KMOD_DIR}" ]; then
+        echo "  ✗ 找不到内核模块源码目录"
+        echo "    期望: drivers/<驱动版本>/kernel/<内核版本>/gen2kr.c"
+        return 1
+    fi
+    echo "  源码目录: ${KMOD_DIR#${PKG_ROOT}/}"
+
+    # ★ 目录名是"这套模块验证过的内核版本"，与当前内核不一致要提示
+    local dir_kver
+    dir_kver="$(basename "${KMOD_DIR}")"
+    if [ "${dir_kver}" != "${KVER_SHORT}" ]; then
+        echo "  ⚠ 目录记录的内核版本是 ${dir_kver}，当前是 ${KVER_SHORT}"
+        echo "    源码用稳定 API 通常能编过，但产物未经该内核验证"
+    fi
+
+    cd "${KMOD_DIR}" || return 1
 
     # ★ 必须清掉旧产物，否则 make 会说"无事可做"
     rm -f gen2kr.o gen2kr.ko .gen2kr.o.d 2>/dev/null || true
@@ -107,13 +122,13 @@ build_kernel_module() {
     cd "${PKG_ROOT}" || return 1
 
     # 确认产物真的生成了
-    if [ ! -f kmod/gen2kr.ko ]; then
-        echo "  ✗ 编译\"成功\"但没有产物，检查 kmod/Makefile"
+    if [ ! -f "${KMOD_DIR}/gen2kr.ko" ]; then
+        echo "  ✗ 编译\"成功\"但没有产物，检查 ${KMOD_DIR}/Makefile"
         return 1
     fi
 
-    cp -f kmod/gen2kr.ko build/
-    echo "  gen2kr.ko ✓  ($(stat -c%s kmod/gen2kr.ko) 字节)"
+    cp -f "${KMOD_DIR}/gen2kr.ko" build/
+    echo "  gen2kr.ko ✓  ($(stat -c%s "${KMOD_DIR}/gen2kr.ko") 字节)"
     return 0
 }
 

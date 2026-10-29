@@ -2,21 +2,20 @@
 # 编译产物（可由 bin/build.sh 重建）
 # ============================================================
 build/
-kmod/*.o
-kmod/*.ko
-kmod/*.mod
-kmod/*.mod.c
-kmod/.*.cmd
-kmod/Module.symvers
-kmod/modules.order
-kmod/.module-common.o
+
+# 内核模块的编译中间件（源码在 drivers/<驱动>/kernel/<内核>/）
+drivers/*/kernel/*/*.o
+drivers/*/kernel/*/*.ko
+drivers/*/kernel/*/*.mod
+drivers/*/kernel/*/*.mod.c
+drivers/*/kernel/*/.*.cmd
+drivers/*/kernel/*/Module.symvers
+drivers/*/kernel/*/modules.order
+drivers/*/kernel/*/.module-common.o
 
 # ============================================================
-# 运行日志（每次跑 soak/verify 都会新增）
+# 运行日志
 # ============================================================
-logs/*.log
-# 但复现证据要留
-!logs/复现-长跑-8min.log
 *.data
 
 # ============================================================
@@ -31,6 +30,6 @@ __pycache__/
 # 注意：history/ 里的编译产物和日志**故意不忽略**
 #   · history/pcie-gen2/kmod/*.ko|*.o  是当年参与实验的具体二进制，
 #     源码后来改过，重建不出同一份 ⇒ 有归档价值
-#   · history/pcie-gen2/*.log          是当年实验的原始记录
-#   上面的规则只匹配顶层 kmod/ 和 logs/，不影响 history/。
+#   · history/logs/复现-长跑-8min.log  是复现证据
+#   上面的规则用相对路径精确匹配，不影响 history/。
 # ============================================================
