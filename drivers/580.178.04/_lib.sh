@@ -158,6 +158,36 @@ kmod_kernel_version() {
 kmod_loaded() { lsmod | grep -q '^gen2kr'; }
 
 # 编译模块。成功后 .ko 在 ${KERNEL_SRC_DIR}/gen2kr.ko
+# 该用哪个用户编译内核模块
+#
+# ★ 这是踩过的坑（2026-10-29）：脚本整体要 root（insmod / 写 sysfs），
+#   但**编译不能用 root** —— 若仓库在 NFS 上（root_squash），
+#   root 写不进 .gen2kr.o.d，报「权限不够」而编译失败。
+#
+# 所以：非 root 就直接用当前用户；是 root 就降权到 SUDO_USER。
+# 拿不到 SUDO_USER（比如 su - 进来的）则返回空，由调用方报错。
+build_user() {
+    if [ "$(id -u)" != "0" ]; then
+        id -un
+        return 0
+    fi
+    if [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER}" != "root" ]; then
+        echo "${SUDO_USER}"
+        return 0
+    fi
+    echo ""
+}
+
+# 以指定用户执行命令（root 时降权；本来就不是 root 就直跑）
+run_as() {
+    local user="$1"; shift
+    if [ "${user}" = "$(id -un)" ]; then
+        "$@"
+    else
+        sudo -u "${user}" "$@"
+    fi
+}
+
 build_kmod() {
     hdr "编译内核模块"
 
@@ -183,14 +213,48 @@ build_kmod() {
         return 1
     fi
 
-    # ★ 必须清掉旧产物，否则 make 会说"无事可做"
+    # ★ 编译用户：不能用 root（NFS root_squash 写不进 .gen2kr.o.d）
+    local cuser
+    cuser="$(build_user)"
+    if [ -z "${cuser}" ]; then
+        err "当前是 root，但拿不到 SUDO_USER，不知道该用哪个用户编译"
+        echo "    两种办法："
+        echo "      A) 用普通用户跑: bash 02-gen2-push.sh build"
+        echo "      B) 用 sudo 重新跑本脚本: sudo bash 02-gen2-push.sh start"
+        return 1
+    fi
+    if [ "${cuser}" != "$(id -un)" ]; then
+        echo "   编译身份: ${cuser}（当前是 root，降权编译 —— root 编会写不进产物）"
+    fi
+
+    # ① 先在当前身份下清掉旧产物
+    #    （若之前 root 编过，产物属主是 root，只有 root 删得掉）
     rm -f "${KERNEL_SRC_DIR}"/gen2kr.o \
           "${KERNEL_SRC_DIR}"/gen2kr.ko \
-          "${KERNEL_SRC_DIR}"/.gen2kr.o.d 2>/dev/null || true
+          "${KERNEL_SRC_DIR}"/gen2kr.mod \
+          "${KERNEL_SRC_DIR}"/gen2kr.mod.c \
+          "${KERNEL_SRC_DIR}"/gen2kr.mod.o \
+          "${KERNEL_SRC_DIR}"/.gen2kr.o.d \
+          "${KERNEL_SRC_DIR}"/.gen2kr.mod.o.d \
+          "${KERNEL_SRC_DIR}"/.module-common.o \
+          "${KERNEL_SRC_DIR}"/Module.symvers \
+          "${KERNEL_SRC_DIR}"/modules.order 2>/dev/null || true
 
+    # ② 目录本身得让 cuser 可写
+    if [ "${cuser}" != "$(id -un)" ]; then
+        chown "${cuser}" "${KERNEL_SRC_DIR}" 2>/dev/null || true
+    fi
+    if ! run_as "${cuser}" test -w "${KERNEL_SRC_DIR}"; then
+        err "用户 ${cuser} 对 ${KERNEL_SRC_DIR} 没有写权限"
+        echo "    修一下属主：sudo chown -R ${cuser}:${cuser} ${VER_DIR}"
+        return 1
+    fi
+
+    # ③ 降权编译
     local log
     log="$(mktemp)"
-    if make -C "/lib/modules/${KVER}/build" M="${KERNEL_SRC_DIR}" modules >"${log}" 2>&1; then
+    if run_as "${cuser}" make -C "/lib/modules/${KVER}/build" \
+               M="${KERNEL_SRC_DIR}" modules >"${log}" 2>&1; then
         ok "编译成功  ($(stat -c%s "${KERNEL_SRC_DIR}/gen2kr.ko" 2>/dev/null || echo ?) 字节)"
         rm -f "${log}"
         return 0
@@ -204,7 +268,8 @@ build_kmod() {
     echo "     1. 内核头版本不匹配 —— 必须在跑这张卡的那台机器上编"
     echo "     2. 编译器与内核构建时不一致（clang 内核 + gcc 编模块会报"
     echo "        unrecognized command-line option '-mstack-alignment'）"
-    echo "     3. NFS root_squash —— 不要用 sudo 编"
+    echo "     3. 目录属主不对 —— 编译用户必须能写该目录"
+    echo "        sudo chown -R ${cuser}:${cuser} ${VER_DIR}"
     return 1
 }
 

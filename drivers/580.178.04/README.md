@@ -72,6 +72,11 @@ sudo bash 02-gen2-push.sh start     # 编译（若无）+ 加载模块 + 推送
 
 `start` 会依次做：检查补丁 → 准备模块 → **确认 GPU 空闲** → insmod → unbind/bind → 等 Gen2。
 
+> `start` 需要 root（要 insmod / 写 sysfs），但**编译模块不能用 root**
+> （NFS 上 root_squash 会让 root 写不进 `.gen2kr.o.d`）。
+> 脚本会自动降权到 `SUDO_USER` 编译，所以直接 `sudo ./02-gen2-push.sh start` 就行。
+> 只想编译的话不用 sudo：`./02-gen2-push.sh build`。
+
 ### 第 3 步：验证
 
 ```bash

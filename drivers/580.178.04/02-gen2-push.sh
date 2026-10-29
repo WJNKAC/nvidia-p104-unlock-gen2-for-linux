@@ -44,7 +44,7 @@ usage() {
   start       编译（若无 .ko）→ 加载模块 → 推送 → 等链路到 Gen2
   stop        卸载模块（链路会掉回 Gen1）
   restart     stop + start
-  build       只编译内核模块
+  build       只编译内核模块（普通用户即可，不必 sudo）
   uninstall   stop + 删除编译产物
 
 说明:
@@ -253,7 +253,8 @@ main() {
         build)
             section "02 · 只编译模块"
             load_offsets
-            need_root build
+            # ★ 不要求 root —— 编译本来就该用普通用户
+            #   若用 sudo 跑，build_kmod 会降权到 SUDO_USER
             do_build || exit 1
             ;;
 

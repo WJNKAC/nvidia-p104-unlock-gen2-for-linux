@@ -26,6 +26,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 KERNEL_BUILD_DIR="/lib/modules/${KVER}/build"
 
 DO_USER_ONLY=0          # 1 = 只编用户态探针
+COMPILE_USER=""         # 用哪个用户编译内核模块（root 时降权）
 
 # 用户态探针：产物名:说明（源文件固定为 src/<名>.c）
 USER_PROBES=(
@@ -36,6 +37,33 @@ USER_PROBES=(
 # ============================================================
 # 2. 函数
 # ============================================================
+
+# 决定用哪个用户编译和写产物
+#
+# ★ 2026-10-29 踩的坑：NFS root_squash 下 root 被映射成 nobody，
+#   既写不进 kmod 的 .gen2kr.o.d，也覆盖不了 build/ 里 union 拥有的文件。
+#   有 SUDO_USER 就降权；没有就只能让用户自己用普通用户跑。
+determine_compile_user() {
+    if [ "$(id -u)" != "0" ]; then
+        COMPILE_USER="$(id -un)"
+        return 0
+    fi
+    if [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER}" != "root" ]; then
+        COMPILE_USER="${SUDO_USER}"
+        return 0
+    fi
+    return 1
+}
+
+# 以指定用户执行命令（root 时降权；本来就不是 root 就直跑）
+run_as() {
+    local user="$1"; shift
+    if [ "${user}" = "$(id -un)" ]; then
+        "$@"
+    else
+        sudo -u "${user}" "$@"
+    fi
+}
 
 # 打印分节标题
 section() {
@@ -54,7 +82,7 @@ build_user_probes() {
         name="${item%%:*}"
         desc="${item#*:}"
 
-        if gcc -O2 -o "build/${name}" "src/${name}.c" -ldl 2>/dev/null; then
+        if run_as "${COMPILE_USER}" gcc -O2 -o "build/${name}" "src/${name}.c" -ldl 2>/dev/null; then
             echo "  ${name}  ✓   （${desc}）"
         else
             echo "  ✗ ${name} 编译失败"
@@ -73,11 +101,8 @@ build_kernel_module() {
     section "2. 内核模块 gen2kr.ko"
     echo "  本机内核: ${KVER}"
 
-    # 前置条件一：不能用 root
-    if [ "$(id -u)" = "0" ]; then
-        echo "  ⚠ 当前是 root。若仓库在 NFS 上（root_squash），编译会失败。"
-        echo "    请用普通用户重跑本脚本。"
-        return 1
+    if [ "${COMPILE_USER}" != "$(id -un)" ]; then
+        echo "  编译身份: ${COMPILE_USER}（root 编写不进产物，已降权）"
     fi
 
     # 前置条件二：必须有对应内核头
@@ -105,10 +130,15 @@ build_kernel_module() {
     cd "${KMOD_DIR}" || return 1
 
     # ★ 必须清掉旧产物，否则 make 会说"无事可做"
-    rm -f gen2kr.o gen2kr.ko .gen2kr.o.d 2>/dev/null || true
+    rm -f gen2kr.o gen2kr.ko .gen2kr.o.d \
+          gen2kr.mod gen2kr.mod.c gen2kr.mod.o .gen2kr.mod.o.d \
+          .module-common.o Module.symvers modules.order 2>/dev/null || true
+
+    # 目录属主要让编译用户可写
+    [ "${COMPILE_USER}" != "$(id -un)" ] && chown "${COMPILE_USER}" "${KMOD_DIR}" 2>/dev/null || true
 
     build_log="$(mktemp)"
-    if make -C "${KERNEL_BUILD_DIR}" M="${PWD}" modules >"${build_log}" 2>&1; then
+    if run_as "${COMPILE_USER}" make -C "${KERNEL_BUILD_DIR}" M="${KMOD_DIR}" modules >"${build_log}" 2>&1; then
         echo "  编译成功"
     else
         echo "  ✗ 编译失败，最后 20 行："
@@ -127,7 +157,10 @@ build_kernel_module() {
         return 1
     fi
 
-    cp -f "${KMOD_DIR}/gen2kr.ko" build/
+    # 拷贝也降权，避免 build/ 里出现 root 拥有的产物
+    mkdir -p build
+    [ "${COMPILE_USER}" != "$(id -un)" ] && chown "${COMPILE_USER}" build 2>/dev/null || true
+    run_as "${COMPILE_USER}" cp -f "${KMOD_DIR}/gen2kr.ko" build/
     echo "  gen2kr.ko ✓  ($(stat -c%s "${KMOD_DIR}/gen2kr.ko") 字节)"
     return 0
 }
@@ -171,7 +204,18 @@ main() {
     parse_args "$@"
 
     cd "${PKG_ROOT}" || exit 1
+
+    if ! determine_compile_user; then
+        echo "✗ 当前是 root 且拿不到 SUDO_USER，无法确定编译身份" >&2
+        echo "  请用普通用户跑：bash bin/build.sh" >&2
+        exit 1
+    fi
+
     mkdir -p build
+    # build/ 若之前被 root 建过，转给编译用户，否则它写不进去
+    if [ "${COMPILE_USER}" != "$(id -un)" ]; then
+        chown "${COMPILE_USER}" build 2>/dev/null || true
+    fi
 
     build_user_probes || exit 1
 
