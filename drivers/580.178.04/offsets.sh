@@ -1,0 +1,92 @@
+#!/bin/bash
+# ============================================================
+# offsets.sh —— 580.178.04 的全部偏移与原始字节
+#
+# 纯变量定义，无逻辑。两种用法：
+#   1. 脚本里 source 它
+#   2. 人工查：「这个版本要改哪里」
+#
+# ★ 换驱动版本必须重新定位，不要照抄这里的数字。
+# ============================================================
+
+# ============================================================
+# 版本标识
+# ============================================================
+DRIVER_VERSION="580.178.04"
+KERNEL_VERIFIED="6.12.113+deb13-amd64"
+GPU_VERIFIED="P104-100 (10de:1b87)"
+
+# ============================================================
+# 目标文件路径
+# ============================================================
+# nvidia.ko（gen2 补丁）
+KO_PATH="/lib/modules/$(uname -r)/updates/dkms/nvidia.ko"
+
+# libnvidia-glcore.so（delay 补丁）
+GLOCORE_PATH="/usr/lib/x86_64-linux-gnu/libnvidia-glcore.so.580.178.04"
+
+# nv-kernel.o_binary（whitelist 补丁的输入，不是最终模块）
+NVKERNEL_PATH="/usr/src/nvidia-580.178.04/nvidia/nv-kernel.o_binary"
+
+# ============================================================
+# gen2：2 字节，签名搜索
+# ============================================================
+# 32 字节签名，全文件唯一。改了它就不用管绝对偏移。
+#   拆分看：8d42ff | 4156 | 4155 | 4989fd | 4154 | 4531e4 | 53 |
+#           4883ed40 | 48897510 | 89550c | 83f802 | 0f87
+GEN2_SIG_HEX="8d42ff415641554989fd41544531e4534883ed404889751089550c83f8020f87"
+
+GEN2_SIG_LEN=32
+
+# 签名内的两个位置
+GEN2_OFF_LEA=2      # lea 的 imm8
+GEN2_ORIG_LEA=0xff
+GEN2_NEW_LEA=0xfe
+
+GEN2_OFF_CMP=0x1d   # cmp 的 imm8
+GEN2_ORIG_CMP=0x02
+GEN2_NEW_CMP=0x01
+
+# md5
+GEN2_MD5_BEFORE="7f6805ed15f1ae8122aa78e65a5d48a0"
+GEN2_MD5_AFTER="514de9d4fdd7c407a088f1baf4b62f04"
+
+# ============================================================
+# delay：1 字节，固定偏移
+# ============================================================
+DELAY_OFFSET=0xb51c82        # je 的 opcode 位置
+DELAY_ORIG=0x74              # je  rel8
+DELAY_NEW=0xeb               # jmp rel8
+
+# 判据指令（只读参考，用于人工确认位置对不对）
+DELAY_CONTEXT_CMP_INSN=0xb51c7b    # cmp byte [rax+0x20b],0
+DELAY_CONTEXT_JMP_TARGET=0xb51cb0
+
+# md5
+DELAY_MD5_BEFORE="18f43321d6fcf95524cfb7e12cb221f2"
+DELAY_MD5_AFTER="45b06947204cbd586a5d45a463bb69ba"
+
+# ============================================================
+# whitelist：5 个 dword，固定偏移
+# ============================================================
+WHITELIST_OFFSET=0x5cfdfcc
+
+# 5 个条目的原始 device ID（低 16 位）
+WHITELIST_DEV_IDS=(0x1b07 0x1b87 0x1bc7 0x1c07 0x1c09)
+
+# 家族前缀（高 16 位），替换时保留
+WHITELIST_FAMILY=0x0007
+
+# 替换后的哨兵值
+WHITELIST_SENTINEL=0xffff
+
+# md5（nv-kernel.o_binary 的）
+WHITELIST_MD5_BEFORE="caa613d35d8bdfd615cee91e932689b5"
+WHITELIST_MD5_AFTER="f3480248f7a70f7501fd14ac90582ef1"
+
+# ============================================================
+# 文件大小（用于「是不是这个版本」的快速判断）
+# ============================================================
+KO_SIZE=157271160
+GLOCORE_SIZE=37062312
+NVKERNEL_SIZE=112677456
