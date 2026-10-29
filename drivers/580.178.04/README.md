@@ -167,6 +167,33 @@ grep -c "Display server starting"  →  1
 （`ps` 里能看到它的父进程就是 `/usr/bin/sddm`，参数带 `-noreset`），
 所以卡一直保持 P8。
 
+### ⚠ 它和 Gen2 推送是冲突的
+
+这个 Xorg 会**一直占着 `/dev/nvidia*`**：
+
+```
+/dev/nvidia0:        root  1095 F...m Xorg
+/dev/nvidiactl:      root  1095 F.... Xorg
+/dev/nvidia-modeset: root  1095 F.... Xorg
+```
+
+而 `02-gen2-push.sh` 的 `start` 靠 `unbind`/`bind` 触发 probe ——
+**GPU 被占用时 `unbind` 会挂在 `device_release_driver_internal` 里**，
+进程进 D 状态、`kill -9` 也没用，只能重启（踩过一次，见 `docs/安全纪律.md` 铁律 9b）。
+所以脚本里的 `check_gpu_idle()` 会直接拦住，这是对的。
+
+两条路只能选一条，或者按顺序做：
+
+| 想要 | 做法 |
+|---|---|
+| **省电**（P8，7.5 W） | 关自动登录，让 sddm 的 Xorg 常驻。链路停在 Gen1 |
+| **Gen2**（1.56 GB/s） | 先 `systemctl stop sddm` 把 Xorg 停掉 → 推 Gen2 → 再 `start sddm` |
+
+顺序很重要：**先推 Gen2、后起 Xorg** 是可以两全的 —— 补丁在位时 `cuInit`
+不会再降级，Xorg 起来之后链路仍保持 Gen2。反过来（Xorg 先占着）就推不动了。
+
+---
+
 ### ⚠ `Xwayland` 不算
 
 Wayland 会话里的 `Xwayland` 替代不了 Xorg —— 实测有 Xwayland 时卡**仍然**停在
