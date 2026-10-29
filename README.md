@@ -95,6 +95,12 @@ sudo bash bin/20-install.sh     # 打补丁 + 编译模块 + 推送，全自动
 展开版（编译、自检、验证、回滚）见下面的「快速开始」。
 ⚠ 两条路**不要混着重复打** —— 脚本会检测状态并拒绝已打过的。
 
+### heaven 测试（这里的针对 SKU 只 patch 用户态的每批次延迟，没有 patch 内核解除 SKU 限制）
+- Gen1 测试：
+  ![](./docs/pics/heaven/没过.png)
+- Gen2 测试：
+  ![](./docs/pics/heaven/过了.png)
+
 ---
 
 ## 为什么需要解锁
