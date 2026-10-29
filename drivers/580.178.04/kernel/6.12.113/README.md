@@ -100,7 +100,7 @@ make -C /lib/modules/$(uname -r)/build M=$PWD modules
 - **clear-delay 项目**（用户态方案）：<https://github.com/WJNKAC/nvidia-p106-clear-delay>
 - **上游分析**（内核白名单思路）：<https://github.com/dartraiden/NVIDIA-patcher/issues/3>
 
-> 注：本仓库 `drivers/<版本>/minimal.sh whitelist` 那个补丁能**从源头**解决它 ——
+> 注：本仓库 `drivers/<版本>/00-whitelist.sh` 那个补丁能**从源头**解决它 ——
 > 打了之后延迟命令根本不生成。所以真要解决帧率问题，用 `whitelist` 比用户态补丁更彻底。
 
 ---

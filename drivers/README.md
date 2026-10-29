@@ -21,7 +21,11 @@
 drivers/<驱动版本>/
 ├── README.md      这个版本的简介：有哪些补丁、偏移表、验证数据、风险
 ├── offsets.sh     机器可读的偏移（可被 source，也可直接看）
-├── minimal.sh     最小实现：check / apply / revert（自包含，零仓库依赖）
+├── 00-whitelist.sh   前置（可选）：解除受限 SKU
+├── 01-gen2-patch.sh  必做：改 nvidia.ko（不再降级）
+├── 02-gen2-push.sh   必做：加载模块 + 推送链路
+├── _lib.sh           公共 bash 函数
+├── _patch.py         通用二进制补丁器（JSON 规格驱动）
 └── kernel/
     └── <内核版本>/    ← ★ 内核模块按【内核版本】再分一层
         ├── README.md      这套内核上的模块说明
@@ -36,7 +40,7 @@ drivers/<驱动版本>/
 
 | | 绑定什么 | 为什么 |
 |---|---|---|
-| `offsets.sh` / `minimal.sh` | 驱动版本 | 改的是驱动二进制的字节偏移 |
+| `offsets.sh` / `_patch.py` / `0x-*.sh` | 驱动版本 | 改的是驱动二进制的字节偏移 |
 | `kernel/<内核版本>/` | 内核版本 | `.ko` 只能用目标机器的内核头编，换内核就加载不了 |
 
 所以是两级：`drivers/<驱动>/kernel/<内核>/`。
@@ -45,15 +49,24 @@ drivers/<驱动版本>/
 `bin/build.sh` 会自动找匹配当前内核的目录（`_common.sh` 里的 `find_kmod_dir`），
 找不到精确匹配就退回"仓库里只有一套"的那套，并提示版本可能不符。
 
-### minimal.sh 与 kernel/ 的分工
+### 00/01 与 02 的分工
 
-`minimal.sh` 是**独立可用**的：把它和驱动文件放一起就能跑，不需要克隆整个仓库，
-只管那两个**字节级补丁**。
+| 脚本 | 管什么 | 本质 |
+|---|---|---|
+| `00-whitelist.sh` | 帧率/功耗（可选） | 改字节 |
+| `01-gen2-patch.sh` | 让驱动不再降级 | 改字节 |
+| `02-gen2-push.sh` | 把链路推上去 | 加载内核模块 |
 
-`kernel/` 下的模块负责**把链路推上去**（补丁只做到"不再降级"）。两者配合使用：
+00/01 是**字节级补丁**，独立可用（不需要克隆整个仓库，只要 `_lib.sh` / `_patch.py` / `offsets.sh`）。
+02 负责加载 `kernel/<内核版本>/` 编出来的模块。
+
+三个脚本都可以在版本目录里直接跑，不必回仓库根：
 
 ```bash
-sudo bash bin/20-install.sh     # 打补丁 + 编译模块 + 推送，一条龙
+cd drivers/580.178.04
+sudo bash 01-gen2-patch.sh apply
+# 重载/重启后
+sudo bash 02-gen2-push.sh start
 ```
 
 ## 已有版本
@@ -112,4 +125,4 @@ Gen2 的 2 字节补丁只做到「驱动不再把速率降回 Gen1」，
 **链路本身还需要有人推上去**（解锁端点声明 + 写 SPEED + 重训）。
 
 推送由 `580.178.04/kernel/6.12.113/gen2kr.c` 完成（在 `nv_pci_probe` 返回瞬间做），
-完整流程见仓库根目录的 `README.md`。`minimal.sh` 只管那个 2 字节补丁。
+完整流程见 `580.178.04/README.md`。`01-gen2-patch.sh` 只管那个 2 字节补丁。
