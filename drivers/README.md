@@ -76,13 +76,21 @@ sudo bash bin/20-install.sh     # 打补丁 + 编译模块 + 推送，一条龙
 
 两者独立，可单独用，也可叠加。
 
-### 关于「每批次延迟」（gr3d delay）—— 仅作说明，本项目不实现
+### 关于「每批次延迟」（gr3d delay）—— 仅引用，本项目不实现
 
 P1XX / CMP 矿卡还有一个**独立的**性能限制：驱动每批次向 pushbuffer 写入
 `method 0x3998 = 0xF0(240)`，240 × 0.91µs ≈ 218µs 的空转，导致帧率卡在 ~40fps、
-功耗上不去。这个问题**与 PCIe 带宽无关**，属于另一个课题（P106 功耗/延迟）。
+功耗上不去。这个问题**与 PCIe 带宽无关**，属于另一个课题。
 
-本仓库**不提供**它的补丁实现，只说明它与 `whitelist` 的关系：
+**本仓库不提供它的实现。** 需要的话去这两处：
+
+- 本作者的 clear-delay 项目：<https://github.com/WJNKAC/nvidia-p106-clear-delay>
+- 上游分析（内核白名单思路）：<https://github.com/dartraiden/NVIDIA-patcher/issues/3>
+
+> ★ 每个 `drivers/<版本>/README.md` 都会重复引用这两个链接 ——
+> 因为看单个版本的人未必会翻到这里。
+
+它与本目录 `whitelist` 补丁的关系：
 
 | 配置 | 帧时间 | fps | 延迟命令是否生成 |
 |---|---|---|---|
