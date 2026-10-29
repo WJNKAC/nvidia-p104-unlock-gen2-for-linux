@@ -20,9 +20,8 @@ set -u
 MIN="${1:-30}"
 GAP="${2:-3}"
 D="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
-# ★ 日志必须写 /tmp：本脚本用 root 跑（读 /dev/mem），而 /data/labs 在 union 上
-#   属主是 union，NFS root_squash 会让 root 写不进去（reports/197 §6）。
-#   跑完用 union 身份把 /tmp 的日志拷回 /data。
+# ★ 日志默认写 /tmp：本脚本用 root 跑（读 /dev/mem），若仓库在 NFS 上
+#   （root_squash），root 写不进仓库目录。跑完把日志拷回 logs/ 即可。
 LOGF="/tmp/log-soak-$(date +%Y%m%d-%H%M%S).log"
 
 lnk() {

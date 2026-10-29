@@ -145,20 +145,25 @@ LNKSTA=1  LCAP2=0x0002  TLS=1  0x8841C=0xc0b40500
 带宽 pinned H2D 0.779 / D2H 0.855 GB/s     ← Gen1 水平
 ```
 
-### 补齐只要两条命令（★ 不用重载 nvidia）
+### 补齐只要一条命令（★ 不用重载 nvidia）
 
 ```bash
-sudo insmod /data/labs/nvidia/nvidia-p104-unlock-gen2-for-linux/build/gen2kr.ko
+# 在仓库根目录执行（脚本自己算路径，不依赖安装位置）
+sudo bash bin/push.sh
+```
+
+它等价于手动做这三步（★ 注意 `gen2kr.ko` 是编译产物，先跑过一次 `bin/build.sh`）：
+
+```bash
+sudo insmod build/gen2kr.ko                  # 相对仓库根目录
 sudo sh -c 'echo 0000:01:00.0 > /sys/bus/pci/drivers/nvidia/unbind
             sleep 1
             echo 0000:01:00.0 > /sys/bus/pci/drivers/nvidia/bind'
 ```
 
-或者用脚本：
-
-```bash
-sudo bash bin/push.sh        # 轻量：insmod + unbind/bind，不碰 nvidia
-```
+> 如果把仓库放在别处，`bin/` 里的脚本不需要改 —— 它们用
+> `$(dirname $0)/..` 自己推导根目录。只有上面这段**手写**命令需要用你
+> 实际的仓库路径。
 
 实测日志（reports/201）：
 ```
@@ -196,10 +201,13 @@ sudo bash bin/push.sh        # 轻量：insmod + unbind/bind，不碰 nvidia
 ## 快速开始
 
 ```bash
-cd /data/labs/nvidia/nvidia-p104-unlock-gen2-for-linux
+# 先 clone 或解压到任意目录，然后 cd 进去
+git clone https://github.com/WJNKAC/nvidia-p104-unlock-gen2-for-linux
+cd nvidia-p104-unlock-gen2-for-linux
+# 后面所有命令都在这个目录里执行，用相对路径
 
 # 1) 编译
-#    ★ 必须用普通用户，不要 sudo —— NFS root_squash 会让 root 写不进去
+#    ★ 必须用普通用户，不要 sudo —— 权限不对时 root 编译产物会归 root
 #    ★ 内核模块必须在【跑 P104 的那台机器】上编（要匹配它的 /lib/modules/$(uname -r)）
 bash bin/build.sh
 
@@ -235,9 +243,9 @@ bash bin/build.sh --user-only      # 只编用户态探针
 ## 手动复现（不用脚本，逐条命令）
 
 下面是最小可复现步骤。假设：
-- 包解压在 `$PKG`（默认 `/data/labs/nvidia/nvidia-p104-unlock-gen2-for-linux`）
+- 你已经在**仓库根目录**（clone 下来的那个目录），下文用相对路径
 - 设备 `0000:01:00.0`
-- 驱动 `/lib/modules/$(uname -r)/updates/dkms/nvidia.ko`
+- 驱动 `/lib/modules/$(uname -r)/updates/dkms/nvidia.ko`（若你的驱动装在别处，见 `bin/_common.sh` 的 `KO`）
 
 ### 步骤 0 —— 编译探针和模块
 
@@ -245,7 +253,6 @@ bash bin/build.sh --user-only      # 只编用户态探针
 > ★ 不要用 `sudo` —— NFS root_squash 会让 make 报 `.gen2kr.o.d: 权限不够`。
 
 ```bash
-cd $PKG
 mkdir -p build
 
 # 零 DMA 的上下文探针（只建/销毁 CUDA 上下文，用来观察是否触发降级）
@@ -257,8 +264,8 @@ gcc -O2 -o build/bwtest2 src/bwtest2.c -ldl
 # 内核模块（★ 普通用户身份，不要 sudo）
 cd kmod
 make -C /lib/modules/$(uname -r)/build M=$PWD modules
-cp gen2kr.ko $PKG/build/
-cd $PKG
+cp gen2kr.ko ../build/
+cd ..        # 回到仓库根目录，后面的命令都在这里执行
 ```
 
 或者直接 `bash bin/build.sh` 一次做完上面三件。
@@ -321,7 +328,7 @@ sudo modprobe nvidia_uvm
 
 ```bash
 # 加载 gen2kr（它会在 nv_pci_probe 上挂 kretprobe）
-sudo insmod $PKG/build/gen2kr.ko
+sudo insmod build/gen2kr.ko
 
 # 触发一次 probe：push 在 probe 返回瞬间执行
 sudo sh -c 'echo 0000:01:00.0 > /sys/bus/pci/drivers/nvidia/unbind'
@@ -339,12 +346,12 @@ sudo dmesg | grep gen2kr | tail -6               # 期望看到 "★ SUCCESS Gen
 
 ```bash
 # A) 带宽（★ 必须 512MB×15）
-$PKG/build/bwtest2 512 15 | grep pinned
+build/bwtest2 512 15 | grep pinned
 #   期望：pinned H2D med ~1.56   D2H med ~1.71  GB/s
 
 # B) 稳定性：连跑几次 CUDA 上下文，链路应该一次都不掉
 for i in 1 2 3 4 5; do
-    $PKG/build/minictx 1 >/dev/null 2>&1
+    build/minictx 1 >/dev/null 2>&1
     sleep 1
     lspci -vv -s 01:00.0 | grep -o 'Speed [0-9.]*GT/s' | head -1
 done
@@ -352,13 +359,13 @@ done
 
 # C) 补丁独立性：摘掉守卫，链路还应该保持（证明补丁真的接管了）
 sudo rmmod gen2kr
-for i in 1 2 3; do $PKG/build/minictx 1 >/dev/null 2>&1; sleep 1; done
+for i in 1 2 3; do build/minictx 1 >/dev/null 2>&1; sleep 1; done
 sleep 8
 lspci -vv -s 01:00.0 | grep -o 'LnkSta:.*'
 #   期望：仍是 Speed 5GT/s
 
 # 装回守卫（安全网）
-sudo insmod $PKG/build/gen2kr.ko
+sudo insmod build/gen2kr.ko
 ```
 
 ### 步骤 6 —— 回滚

@@ -1,13 +1,16 @@
 # git 仓库说明
 
+> 本文件面向**本地维护者**，里面的路径是作者机器的实际路径。
+> 只是阅读代码的人不需要看这个文件，直接看 `README.md`。
+
 ## 现状
 
 ```
-仓库根：/data/labs/nvidia/nvidia-p104-unlock-gen2-for-linux
+仓库根：<作者本地路径>/nvidia-p104-unlock-gen2-for-linux
 首次提交：201b4a4  初始提交：P104-100 PCIe Gen2 解锁方案 + 历史归档
 跟踪文件：312
 .git 大小：3.7 M
-分支：master（或 main，取决于 git 默认）
+分支：main
 ```
 
 本地仓库，**没有配置 remote**（没有推送到任何地方）。
@@ -88,7 +91,7 @@
 ## 常用操作
 
 ```bash
-cd /data/labs/nvidia/nvidia-p104-unlock-gen2-for-linux
+cd <仓库根目录>
 
 # 看状态 / 历史
 git status
@@ -131,7 +134,7 @@ git push -u origin master    # 或 main
 已修：
 
 ```bash
-sudo chown -R union:nogroup /data/labs/nvidia/nvidia-p104-unlock-gen2-for-linux
+sudo chown -R $USER:$(id -gn) <仓库根目录>
 ```
 
 以后如果以 root 跑过 `git` 命令，记得再改回来。

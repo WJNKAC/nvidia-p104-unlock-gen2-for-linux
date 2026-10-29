@@ -6,8 +6,8 @@
 #   · 内核模块（gen2kr.ko）：**必须用目标机器的内核头**（/lib/modules/$(uname -r)/build）
 #     ⇒ 要在跑 P104 的那台机器上编，不能拿别的机器的内核头凑
 #
-# ★ NFS root_squash：/data/labs 属主是 union，`sudo make` 会因为 root_squash
-#   写不进去（.gen2kr.o.d: 权限不够）⇒ **本脚本不要用 sudo 跑**。
+# ★ 不要用 sudo 跑本脚本。root 编译出来的产物归 root，之后普通用户改不动；
+#   若仓库在 NFS 上（root_squash），root 甚至写不进去（.gen2kr.o.d: 权限不够）。
 #
 # 用法：
 #   bash bin/build.sh              # 全编
