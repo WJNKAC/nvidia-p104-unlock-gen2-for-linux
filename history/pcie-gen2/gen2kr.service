@@ -1,0 +1,35 @@
+[Unit]
+Description=NVIDIA PCIe Gen2 push (P104-100 / Pascal)
+# 必须在 nvidia 驱动加载之后。gen2kr 依赖 nv_pci_probe 这个模块局部符号。
+After=nvidia.service systemd-modules-load.service
+Wants=nvidia.service
+# 不要在 nvidia 没起来时反复重试
+StartLimitBurst=3
+StartLimitIntervalSec=60
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+# ★ 顺序很重要（reports/184 铁律 #4）：
+#   1. nvidia 必须先加载（否则 kallsyms 里没有 nv_pci_probe，register_kretprobe 返 -2）
+#   2. insmod gen2kr —— 它会在 nv_pci_probe 上挂 kretprobe，把 BAR0 预映射
+#   3. unbind/bind 触发一次 probe，push 在 probe 返回瞬间执行
+#
+# ★ guard_rounds=0（默认）让守卫常驻作为安全网。
+#   补丁（patch_no_gen1.py）生效时守卫应该零动作；
+#   若补丁丢失（驱动升级后），守卫仍能把链路拉回来 —— 双保险。
+
+ExecStartPre=/sbin/modprobe nvidia
+ExecStartPre=/sbin/modprobe nvidia_uvm
+ExecStartPre=/bin/sh -c 'lsmod | grep -q "^gen2kr" && /sbin/rmmod gen2kr || true'
+ExecStart=/sbin/insmod /data/labs/nvidia/pcie-gen2/kmod/gen2kr.ko
+ExecStart=/bin/sh -c 'echo 0000:01:00.0 > /sys/bus/pci/drivers/nvidia/unbind; sleep 1; echo 0000:01:00.0 > /sys/bus/pci/drivers/nvidia/bind'
+
+# 启动后自检：LNKSTA 应为 2。只记录，不失败（避免拖住 boot）
+ExecStartPost=/bin/sh -c '/data/labs/nvidia/pcie-gen2/tools/peek-regs.py || true'
+
+ExecStop=/sbin/rmmod gen2kr
+
+[Install]
+WantedBy=multi-user.target

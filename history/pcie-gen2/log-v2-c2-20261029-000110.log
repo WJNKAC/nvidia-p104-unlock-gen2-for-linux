@@ -1,0 +1,20 @@
+[sudo] union 的密码：模式: mode=speedonly unbind=True  状态文件: state-20261029-000110.json
+设备在线: True
+  [起点] on_bus=True power=D0 bound=True
+    CAP2=0x00000002 LNKSTA=0x1041 cfg=0xc0b40500 lnkcfg0=0x20085800
+    端点 LNKSTA=0x1041 | 根端口 LNKSTA=0x5041 TLS2=0x0043
+  [Gen1 基线] 带宽: H2D 0.777 GB/s | D2H 0.853 GB/s
+
+=== 第1步：写使能位 + 速率请求（mode=speedonly）===
+  XP3G_OVR0    = 0x00000001  ✓
+  XP3G_OVR3    = 0x00000004  ✓
+  XP3G_VAL0    = 0x00000000  ✓
+  XP3G_VAL3    = 0x00200000  ✓
+  0x8841C      = 0xc0b40500 → 0xc0b4ad00  (置11/13/15,清12/14)
+  0x88610      = 0x00000000 → 0x00000001  (清12,置0)
+  0x8872C      = 0x6
+  安全网：LINK_CAP2 = 0x0006 ✓ MMIO 正常
+  0x8C040      = 0x20085800 → 写入 0x20045800  回读 0xffffffff  (SPEED=1，无 COMMIT（C 组）)
+
+!!! 安全网触发（0x8C040 写入之后）：LINK_CAP2 回读 = 0xffffffff —— 端点 MMIO 已死
+!!! 立即中止。此时 lspci 可能仍能看到设备，那是假象。

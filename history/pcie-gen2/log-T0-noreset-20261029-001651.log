@@ -1,0 +1,61 @@
+[sudo] union 的密码：模式: mode=latespeed unbind=True  状态文件: state-20261029-001652.json
+设备在线: True
+  [起点] on_bus=True power=D0 bound=True
+    CAP2=0x00000002 LNKSTA=0x1041 cfg=0xc0b40500 lnkcfg0=0x20085800
+    端点 LNKSTA=0x1041 | 根端口 LNKSTA=0x5041 TLS2=0x0043
+  [Gen1 基线] 带宽: H2D 0.778 GB/s | D2H 0.853 GB/s
+
+=== 第1步：写使能位 + 速率请求（mode=latespeed）===
+  XP3G_OVR0    = 0x00000001  ✓
+  XP3G_OVR3    = 0x00000004  ✓
+  XP3G_VAL0    = 0x00000000  ✓
+  XP3G_VAL3    = 0x00200000  ✓
+  0x8841C      = 0xc0b40500 → 0xc0b4ad00  (置11/13/15,清12/14)
+  0x88610      = 0x00000000 → 0x00000001  (清12,置0)
+  0x8872C      = 0x6
+  安全网：LINK_CAP2 = 0x0006 ✓ MMIO 正常
+  0x8C040      —— 跳过（latespeed：推迟到重枚举之后再写 SPEED）
+  [第1步后] on_bus=True power=D0 bound=True
+    CAP2=0x00000006 LNKSTA=0x1041 cfg=0xc0b4ad00 lnkcfg0=0x20085800
+    端点 LNKSTA=0x1041 | 根端口 LNKSTA=0x5041 TLS2=0x0043
+
+=== 第2步：★跳过（--skip-reset，验证不需要复位）===
+  [复位后] on_bus=True power=D0 bound=True
+    CAP2=0x00000006 LNKSTA=0x1041 cfg=0xc0b4ad00 lnkcfg0=0x20085800
+    端点 LNKSTA=0x1041 | 根端口 LNKSTA=0x5041 TLS2=0x0043
+
+=== 等声明锁存（最多 25s）===
+  [4s] LCAP2=0x00000006  ✓ 已锁存 Gen2
+  [锁存后] on_bus=True power=D0 bound=True
+    CAP2=0x00000006 LNKSTA=0x1041 cfg=0xc0b4ad00 lnkcfg0=0x20085800
+    端点 LNKSTA=0x1041 | 根端口 LNKSTA=0x5041 TLS2=0x0043
+
+=== 第2.5步：声明已锁存 + 已重枚举 → 现在写 SPEED ===
+  根端口 TLS2 = 0x0043 → 0x0042  （先让两端同目标，再请求速率）
+  [late] 0x8C040 = 0x20085800 → 0x20045800  回读 0x20045800  CAP2=0x0006  （第 1 次读到有效值）
+  [late SPEED 后] on_bus=True power=D0 bound=True
+    CAP2=0x00000006 LNKSTA=0x1042 cfg=0xc0b4ad00 lnkcfg0=0x20045800
+    端点 LNKSTA=0x1042 | 根端口 LNKSTA=0xd042 TLS2=0x0042
+
+=== 第3步：两端 TLS=2 + 交替重训 ===
+  端点   LNKCTL2 = 0x10002 → 0x10002
+  根端口 LNKCTL2 = 0x0042 → 0x0042
+  第1轮: 端点读不到
+
+第3步未升速，仍尝试按住
+
+=== 第4步：按住 20s（每 20ms，mode=latespeed）===
+  !! MMIO 失效（n=0, CAP2=0xffffffff, lnkcfg0=0xffffffff）
+
+=== 停止按住后的空闲观察（参考项目称会立刻掉回 Gen1）===
+  空闲 5s: 端点 LNKSTA=N/A sp=- | 根端口=0xd041
+  空闲 10s: 端点 LNKSTA=N/A sp=- | 根端口=0xd041
+  空闲 15s: 端点 LNKSTA=N/A sp=- | 根端口=0xd041
+
+=== 驱动验证：先测活着的驱动（★不重载）===
+  [按住结束时] bound=True | smi: No devices were found  ← smi 的 gen 不可当判据
+  [按住结束时] NVRM: [  312.716424] NVRM: GPU 0000:01:00.0: RmInitAdapter failed! (0x22:0x56:897)
+  [按住结束时] NVRM: [  312.716430] NVRM: GPU 0000:01:00.0: rm_init_adapter failed, device minor number 0
+  [Gen2 结果] cuInit=101
+
+=== 小结 === mode=latespeed 声明锁存=True 第3步升级=False 按住保持=False

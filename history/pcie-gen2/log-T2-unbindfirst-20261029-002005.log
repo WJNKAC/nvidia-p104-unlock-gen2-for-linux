@@ -1,0 +1,77 @@
+[sudo] union 的密码：模式: mode=latespeed unbind=True  状态文件: state-20261029-002005.json
+设备在线: True
+  [起点] on_bus=True power=D0 bound=True
+    CAP2=0x00000002 LNKSTA=0x1041 cfg=0xc0b40500 lnkcfg0=0x20085800
+    端点 LNKSTA=0x1041 | 根端口 LNKSTA=0x5041 TLS2=0x0043
+  [Gen1 基线] 带宽: H2D 0.778 GB/s | D2H 0.854 GB/s
+
+=== 第0步：先 unbind 驱动（只解绑，不 remove）===
+  unbind 成功
+  现在 bound=False
+  [unbind 后基线] cuInit=999
+
+=== 第1步：写使能位 + 速率请求（mode=latespeed）===
+  XP3G_OVR0    = 0x00000001  ✓
+  XP3G_OVR3    = 0x00000004  ✓
+  XP3G_VAL0    = 0x00000000  ✓
+  XP3G_VAL3    = 0x00200000  ✓
+  0x8841C      = 0xc0b40500 → 0xc0b4ad00  (置11/13/15,清12/14)
+  0x88610      = 0x00000000 → 0x00000001  (清12,置0)
+  0x8872C      = 0x6
+  安全网：LINK_CAP2 = 0x0006 ✓ MMIO 正常
+  0x8C040      —— 跳过（latespeed：推迟到重枚举之后再写 SPEED）
+  [第1步后] on_bus=True power=D0 bound=False
+    CAP2=0x00000006 LNKSTA=0x1041 cfg=0xc0b4ad00 lnkcfg0=0x20085800
+    端点 LNKSTA=0x1041 | 根端口 LNKSTA=0x5041 TLS2=0x0043
+
+=== 第2步：★跳过（--skip-reset，验证不需要复位）===
+  [复位后] on_bus=True power=D0 bound=False
+    CAP2=0x00000006 LNKSTA=0x1041 cfg=0xc0b4ad00 lnkcfg0=0x20085800
+    端点 LNKSTA=0x1041 | 根端口 LNKSTA=0x5041 TLS2=0x0043
+
+=== 等声明锁存（最多 25s）===
+  [4s] LCAP2=0x00000006  ✓ 已锁存 Gen2
+  [锁存后] on_bus=True power=D0 bound=False
+    CAP2=0x00000006 LNKSTA=0x1041 cfg=0xc0b4ad00 lnkcfg0=0x20085800
+    端点 LNKSTA=0x1041 | 根端口 LNKSTA=0x5041 TLS2=0x0043
+
+=== 第2.5步：声明已锁存 + 已重枚举 → 现在写 SPEED ===
+  根端口 TLS2 = 0x0043 → 0x0042  （先让两端同目标，再请求速率）
+  [late] 0x8C040 = 0x20085800 → 0x20045800  回读 0x20045800  CAP2=0x0006  （第 1 次读到有效值）
+  [late SPEED 后] on_bus=True power=D0 bound=False
+    CAP2=0x00000006 LNKSTA=0x1042 cfg=0xc0b4ad00 lnkcfg0=0x20045800
+    端点 LNKSTA=0x1042 | 根端口 LNKSTA=0xd042 TLS2=0x0042
+
+=== 第3步：两端 TLS=2 + 交替重训 ===
+  端点   LNKCTL2 = 0x10002（TLS 已是 2，跳过）
+  根端口 LNKCTL2 = 0x0042（TLS 已是 2，跳过）
+  端点 LNKSTA=0x1042 sp=2 已达目标 → **跳过重训**（根端口 0xd042）
+
+=== 第4步：按住 30s（每 20ms，mode=latespeed）===
+  [2.3s n=100] 端点 sp=2 | 根端口 sp=2 | 驱动回压=0
+  [4.6s n=200] 端点 sp=2 | 根端口 sp=2 | 驱动回压=0
+  [6.9s n=300] 端点 sp=2 | 根端口 sp=2 | 驱动回压=0
+  [9.2s n=400] 端点 sp=2 | 根端口 sp=2 | 驱动回压=0
+  [11.5s n=500] 端点 sp=2 | 根端口 sp=2 | 驱动回压=0
+  [13.8s n=600] 端点 sp=2 | 根端口 sp=2 | 驱动回压=0
+  [16.1s n=700] 端点 sp=2 | 根端口 sp=2 | 驱动回压=0
+  [18.4s n=800] 端点 sp=2 | 根端口 sp=2 | 驱动回压=0
+  [20.7s n=900] 端点 sp=2 | 根端口 sp=2 | 驱动回压=0
+  [23.0s n=1000] 端点 sp=2 | 根端口 sp=2 | 驱动回压=0
+  [25.3s n=1100] 端点 sp=2 | 根端口 sp=2 | 驱动回压=0
+  [27.6s n=1200] 端点 sp=2 | 根端口 sp=2 | 驱动回压=0
+  [29.8s n=1300] 端点 sp=2 | 根端口 sp=2 | 驱动回压=0
+  结束: 端点 LNKSTA=0x1042 sp=2 | 驱动回压次数=0
+  （驱动回压=0 说明 580.178.04 根本不写 0x8C040，按住循环可以省掉）
+
+=== 停止按住后的空闲观察（参考项目称会立刻掉回 Gen1）===
+  空闲 5s: 端点 LNKSTA=0x1042 sp=2 | 根端口=0xd042
+  空闲 10s: 端点 LNKSTA=0x1042 sp=2 | 根端口=0xd042
+  空闲 15s: 端点 LNKSTA=0x1042 sp=2 | 根端口=0xd042
+
+=== 驱动验证：先测活着的驱动（★不重载）===
+  （第0步解绑过，现在重新 bind）
+  [按住结束时] bound=True | smi: NVIDIA P104-100, 1, 4  ← smi 的 gen 不可当判据
+  [Gen2 结果] 带宽: H2D 0.778 GB/s | D2H 0.853 GB/s
+
+=== 小结 === mode=latespeed 声明锁存=True 第3步升级=True 按住保持=True

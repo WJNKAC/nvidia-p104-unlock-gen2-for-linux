@@ -1,0 +1,49 @@
+[sudo] union 的密码：模式: mode=speedonly unbind=True  状态文件: state-20261028-235836.json
+设备在线: True
+  [起点] on_bus=True power=D0 bound=True
+    CAP2=0x00000006 LNKSTA=0x1041 cfg=0xc0b48d00 lnkcfg0=0x20085800
+    端点 LNKSTA=0x1041 | 根端口 LNKSTA=0x5041 TLS2=0x0042
+
+=== 第1步：写使能位 + 速率请求（mode=speedonly）===
+  XP3G_OVR0    = 0x00000001  ✓
+  XP3G_OVR3    = 0x00000004  ✓
+  XP3G_VAL0    = 0x00000000  ✓
+  XP3G_VAL3    = 0x00200000  ✓
+  0x8841C      = 0xc0b48d00 → 0xc0b4ad00  (置11/13/15,清12/14)
+  0x88610      = 0x00000001 → 0x00000001  (清12,置0)
+  0x8872C      = 0x6
+  安全网：LINK_CAP2 = 0x0006 ✓ MMIO 正常
+  0x8C040      = 0x20085800 → 写入 0x20045800  回读 0x20045800  (SPEED=1，无 COMMIT（C 组）)
+  [第1步后] on_bus=True power=D0 bound=True
+    CAP2=0x00000006 LNKSTA=0x1042 cfg=0xc0b4ad00 lnkcfg0=0x20045800
+    端点 LNKSTA=0x1042 | 根端口 LNKSTA=0xd042 TLS2=0x0042
+
+=== 第2步：remove → rescan（unbind=True）===
+  已 unbind 驱动
+  设备离开总线: True
+  设备回来（0.5s）
+  power_state = D0
+  [复位后] on_bus=True power=D0 bound=True
+    CAP2=0x00000006 LNKSTA=0x1042 cfg=0xc0b4ad00 lnkcfg0=0x20045800
+    端点 LNKSTA=0x1042 | 根端口 LNKSTA=0xd042 TLS2=0x0042
+
+=== 等声明锁存（最多 25s）===
+  [4s] LCAP2=0x00000006  ✓ 已锁存 Gen2
+  [锁存后] on_bus=True power=D0 bound=True
+    CAP2=0x00000006 LNKSTA=0x1042 cfg=0xc0b4ad00 lnkcfg0=0x20045800
+    端点 LNKSTA=0x1042 | 根端口 LNKSTA=0xd042 TLS2=0x0042
+
+=== 第3步：两端 TLS=2 + 交替重训 ===
+  端点   LNKCTL2 = 0x10002 → 0x10002
+  根端口 LNKCTL2 = 0x0042 → 0x0042
+  第1轮: 端点 LNKSTA=0x1042 sp=2 | 根端口=0xd042
+
+=== 第4步：按住 10s（每 20ms）===
+  !! MMIO 失效（端点在按住期间死了）
+
+=== 绑定驱动验证 ===
+  [最终] bound=False | smi: NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver. Make sure that the latest NVIDIA driver is installed and running.
+  [最终] NVRM: [   80.665477] NVRM: The NVIDIA probe routine failed for 1 device(s).
+  [最终] NVRM: [   80.665478] NVRM: None of the NVIDIA devices were initialized.
+
+=== 小结 === mode=speedonly 声明锁存=True 第3步升级=True 按住保持=False
