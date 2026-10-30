@@ -56,6 +56,9 @@ WHITELIST_OFFSET=0x5cfdfcc
 # 5 个条目的原始 device ID（低 16 位）
 WHITELIST_DEV_IDS=(0x1b07 0x1b87 0x1bc7 0x1c07 0x1c09)
 
+# 与上面一一对应的型号名（来自 pci.ids，仅用于展示）
+WHITELIST_DEV_NAMES=("P102-100" "P104-100" "P104-101" "P106-100" "P106-090")
+
 # 家族前缀（高 16 位），替换时保留
 WHITELIST_FAMILY=0x0007
 

@@ -54,6 +54,14 @@ EOF
 }
 
 validate() {
+    # 多余参数一律拒绝（同 01：别让"预览"变成真执行）
+    if [ "$#" -gt 1 ]; then
+        err "多余的参数：${*:2}"
+        echo "    本脚本没有 --dry-run 之类的开关，第二个参数起一律视为错误。"
+        usage
+        exit 2
+    fi
+
     case "${ACTION}" in
         status|start|stop|restart|build|uninstall) ;;
         "")  usage; exit 2 ;;
@@ -241,7 +249,7 @@ do_uninstall() {
 # 3. main
 # ============================================================
 main() {
-    validate
+    validate "$@"
 
     case "${ACTION}" in
         status)

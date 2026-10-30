@@ -40,10 +40,21 @@ usage() {
 说明:
   这一步【可选】。它解决的是"帧率卡 ~40fps / 功耗上不去"，
   与 PCIe Gen2 解锁无关。只想要带宽的话跳过本步，直接跑 01。
+
+  ⚠ 没有 --dry-run / --force 之类的开关。第二个参数起一律报错，
+    以免把"预览"误当成"只看看"，结果真把补丁打了或还原了。
 EOF
 }
 
 validate() {
+    # 多余参数一律拒绝：曾经 `revert --dry-run` 被静默忽略，直接真还原了
+    if [ "$#" -gt 1 ]; then
+        err "多余的参数：${*:2}"
+        echo "    本脚本没有 --dry-run 之类的开关，第二个参数起一律视为错误。"
+        usage
+        exit 2
+    fi
+
     case "${ACTION}" in
         check|apply|revert) ;;
         "")  usage; exit 2 ;;
@@ -84,6 +95,75 @@ run_patch() {
     return $?
 }
 
+# 打印表里到底有哪些设备
+# 打补丁后当前值全是 0x0007ffff，光看它认不出原来是哪张卡
+# ⇒ 从 .orig 备份读原始 ID 来展示
+show_table() {
+    local bin="${NVKERNEL_DIR}/nvidia/nv-kernel.o_binary"
+    local orig="${bin}.orig"
+
+    hdr "受限设备表里有哪些设备"
+
+    local ids="" names="" i
+    for i in "${!WHITELIST_DEV_IDS[@]}"; do
+        ids+="$(printf '%04x' "${WHITELIST_DEV_IDS[$i]}") "
+        names+="${WHITELIST_DEV_NAMES[$i]}|"
+    done
+
+    python3 - "$bin" "$orig" "$WHITELIST_OFFSET" "$ids" "$names" <<'PY'
+import sys, struct, os
+
+binp, origp, off, ids_s, names_s = sys.argv[1], sys.argv[2], int(sys.argv[3], 0), sys.argv[4], sys.argv[5]
+ids   = [int(x, 16) for x in ids_s.split()]
+names = names_s.rstrip("|").split("|")
+
+def read5(path):
+    with open(path, "rb") as f:
+        f.seek(off)
+        return struct.unpack("<5I", f.read(20))
+
+cur = read5(binp)
+orig = read5(origp) if os.path.exists(origp) else None
+
+# 本机这张卡
+local = None
+try:
+    with open("/sys/bus/pci/devices/0000:01:00.0/vendor") as f:
+        v = int(f.read().strip(), 16)
+    with open("/sys/bus/pci/devices/0000:01:00.0/device") as f:
+        local = int(f.read().strip(), 16)
+except Exception:
+    pass
+
+for i, c in enumerate(cur):
+    o = orig[i] if orig else None
+    oid = None
+    if o is not None:
+        oid = o & 0xFFFF
+    else:
+        oid = ids[i] if (c & 0xFFFF) == 0xFFFF else (c & 0xFFFF)
+
+    name = names[i] if i < len(names) else "?"
+    mark = ""
+    if local is not None and oid == local:
+        mark = "   ★ 本机这张"
+
+    if oid == 0xFFFF:
+        origtxt = "原值未知（无 .orig 备份）"
+    else:
+        origtxt = f"原 0x{oid:04x}"
+
+    print(f"   0x{off + i*4:08x}  当前=0x{c:08x}   {origtxt}  {name:<9}{mark}")
+
+print()
+if orig is None:
+    print("   ⚠ 没找到 .orig 备份，原始 ID 只能按 offsets.sh 的已知列表显示")
+else:
+    print(f"   原始值来自备份：{os.path.basename(origp)}")
+    print("   打补丁后低 16 位变 0xffff（哨兵），所以当前文件里看不出是哪张卡")
+PY
+}
+
 # apply/revert 之后打印下一步该做什么
 print_next_steps() {
     [ "${ACTION}" = "check" ] && return 0
@@ -109,7 +189,7 @@ print_next_steps() {
 # 3. main
 # ============================================================
 main() {
-    validate
+    validate "$@"
 
     section "00 · 解除受限 SKU 判定（可选）"
 
@@ -128,6 +208,8 @@ main() {
     fi
 
     run_patch || exit $?
+
+    show_table
 
     print_next_steps
 }

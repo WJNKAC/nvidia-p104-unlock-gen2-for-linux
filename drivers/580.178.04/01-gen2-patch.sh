@@ -45,6 +45,14 @@ EOF
 }
 
 validate() {
+    # 多余参数一律拒绝：避免 `revert --dry-run` 这类"想预览"结果真执行
+    if [ "$#" -gt 1 ]; then
+        err "多余的参数：${*:2}"
+        echo "    本脚本没有 --dry-run 之类的开关，第二个参数起一律视为错误。"
+        usage
+        exit 2
+    fi
+
     case "${ACTION}" in
         check|apply|revert) ;;
         "")  usage; exit 2 ;;
@@ -111,7 +119,7 @@ print_next_steps() {
 # 3. main
 # ============================================================
 main() {
-    validate
+    validate "$@"
 
     section "01 · 修补 nvidia.ko（不掉速）"
 
