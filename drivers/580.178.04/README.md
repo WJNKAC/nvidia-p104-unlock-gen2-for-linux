@@ -19,12 +19,36 @@ NVIDIA 580.178.04 / kernel 6.12.113+deb13-amd64 / Debian 13 / P104-100。
 
 ## 一、怎么用
 
+> ### ⚠⚠ 头号坑：DKMS 会把你的补丁覆盖掉
+>
+> 打补丁编出来的 `nvidia.ko` 有两个去处，**它们是独立文件，不是软链**：
+>
+> | 位置 | 作用 |
+> |---|---|
+> | `/usr/src/nvidia-580.178.04/nvidia.ko` | `make` 的产物 |
+> | `/var/lib/dkms/nvidia/580.178.04/<kver>/x86_64/module/nvidia.ko` | **DKMS 的「built」缓存** |
+> | `/lib/modules/<kver>/updates/dkms/nvidia.ko` | **启动时 modprobe 真正读的** |
+>
+> `dkms install`（以及装新内核时的 `autoinstall`）会拿 **built 缓存**去覆盖
+> `/lib/modules` 那份。缓存里要是老版本，**你的补丁全丢，重启后照旧 19fps**。
+>
+> **所以打完补丁必须同步**：
+>
+> ```bash
+> sudo ./sync-dkms.sh status   # 看三处是否一致
+> sudo ./sync-dkms.sh adopt    # 把当前生效的那份固化到 DKMS 缓存 + /usr/src
+> ```
+>
+> 2026-10-30 实测踩过：打完 00、按提示 `make` 了，重启后仍是 19fps ——
+> 因为只 `make` 了 `/usr/src`，DKMS 缓存还是 10-28 的原始版
+> （md5 `7f6805ed…`，P104-100 出现 2 次）。跑 `adopt` 后三处 md5 一致，重启不再丢。
+
 ### 第 0 步（可选）：解除受限 SKU
 
 **不做也不影响 Gen2**，只影响帧率/功耗。只想提升带宽的话跳过这步。
 
 ```bash
-sudo bash 00-whitelist.sh check     # 看当前状态
+sudo bash 00-whitelist.sh check     # 看当前状态（会列出表里有哪些卡）
 sudo bash 00-whitelist.sh apply     # 打补丁
 ```
 
@@ -32,10 +56,17 @@ sudo bash 00-whitelist.sh apply     # 打补丁
 
 ```bash
 cd /usr/src/nvidia-580.178.04
-sudo make -j$(nproc)
+sudo make -j$(nproc)                # ★ 必须用 root；否则报权限错，容易被误判成编译器问题
 ```
 
-然后重载驱动或重启。
+然后同步 DKMS 并重载驱动或重启：
+
+```bash
+sudo ./sync-dkms.sh adopt           # ★ 不做这步，重启就白打
+```
+
+> ★ **重编会让 01 的 gen2 补丁消失**（01 是直接改 `.ko`，重编就没了）。
+> 正确顺序：**00 白名单 → make → sync-dkms adopt → 01 gen2 → sync-dkms adopt**。
 
 ### 第 1 步：修补 nvidia.ko
 
@@ -44,14 +75,19 @@ sudo bash 01-gen2-patch.sh check    # 看当前状态
 sudo bash 01-gen2-patch.sh apply    # 打 2 字节补丁
 ```
 
+> **关于 md5 警告**：如果先跑过 00（白名单），这一步必定报
+> `⚠ md5 写前与记录不一致`。**这是预期行为，不影响执行** ——
+> md5 只是提示，真正的安全网是「32 字节签名唯一定位 + 三态校验」。
+> 详见 `docs/故障排查.md` 的「md5 不一致」。
+
 打完必须让新代码生效，二选一：
 
 ```bash
 # A) 重载模块（快，会中断图形会话）
 sudo rmmod nvidia_drm nvidia_modeset nvidia_uvm nvidia
-sudo modprobe nvidia nvidia_uvm
+sudo modprobe nvidia && sudo modprobe nvidia_uvm nvidia_modeset nvidia_drm
 
-# B) 直接重启（推荐，最干净）
+# B) 直接重启 —— 但前提是先 sync-dkms adopt，否则缓存会把它盖回去
 ```
 
 > ⚠ **重载/重启前先确认没有程序占用 GPU**：
@@ -243,6 +279,7 @@ P1XX / CMP 矿卡除了 PCIe 受限，还有**另一个独立问题**：帧率�
 00-whitelist.sh      前置（可选）：改 nv-kernel.o_binary
 01-gen2-patch.sh     必做：改 nvidia.ko
 02-gen2-push.sh      必做：加载模块 + 推送链路
+sync-dkms.sh         ★ 打完补丁同步到 DKMS，防重启被覆盖
 _lib.sh              公共部分（路径、颜色、寄存器读取、GPU 占用检查、模块编译）
 _patch.py            通用二进制补丁器（JSON 规格驱动，被 00/01 调用）
 offsets.sh           本版本的偏移与原始字节（纯变量，可 source）

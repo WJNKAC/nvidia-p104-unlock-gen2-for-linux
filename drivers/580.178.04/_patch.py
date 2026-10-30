@@ -218,7 +218,12 @@ def do_write(action, spec, data, md5_now, states, path):
             ok(f"md5 {label}与记录一致（{expect[:8]}…）")
         else:
             warn(f"md5 {label}与记录不一致（记录 {expect[:8]}…，实际 {got[:8]}…）")
-            print("      不影响功能，但说明这份文件可能叠加了其他改动")
+            # 说明为什么会不一致 —— 最常见的原因就是"先打了 00 白名单"
+            print("      ⓘ 这不是错误，不影响执行（md5 仅用于提示，不阻断）。")
+            print("        最常见原因：这份文件上还叠了别的补丁 / 重新编译过。")
+            print("        例如先跑过 00-whitelist（改 nv-kernel.o_binary → 重编 nvidia.ko），")
+            print("        nvidia.ko 的 md5 就必然和「原厂」记录对不上 —— 这是预期行为。")
+            print("        真正的安全网是：32 字节签名唯一定位 + 三态校验（混合态拒绝）。")
 
     if action == "apply" and spec.get("after_note"):
         print()

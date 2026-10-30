@@ -175,14 +175,32 @@ print_next_steps() {
     echo "     cd ${NVKERNEL_DIR}"
     echo "     sudo make -j\$(nproc)"
     echo
-    echo "   然后二选一："
+    echo "   ★ make 必须在 root 下跑（/usr/src 属主 root），否则会报"
+    echo "     「cannot create conftest*.c: Permission denied」而被误认成编译器问题。"
+    echo
+    echo "   ★★ 编完还要同步到 DKMS —— 否则重启就被覆盖回去（最容易踩的坑）："
+    echo
+    echo "     sudo cp ${NVKERNEL_DIR}/nvidia.ko \\"
+    echo "             /var/lib/dkms/nvidia/580.178.04/\$(uname -r)/x86_64/module/nvidia.ko"
+    echo "     sudo cp ${NVKERNEL_DIR}/nvidia.ko \\"
+    echo "             /lib/modules/\$(uname -r)/updates/dkms/nvidia.ko"
+    echo
+    echo "   为什么：启动时 modprobe 读的是 /lib/modules 那份，而 DKMS 的"
+    echo "   「built」缓存在 /var/lib/dkms/... 下，是它自己 10-28 编的原始版。"
+    echo "   dkms install / 装新内核时的 autoinstall 会拿缓存**覆盖**掉你编的。"
+    echo "   只 make 不同步 ⇒ 重启后照旧是老版本（补丁白打）。"
+    echo
+    echo "   然后二选一让它生效："
     echo "     A) 重载驱动（快，会中断图形会话）"
     echo "        sudo rmmod nvidia_drm nvidia_modeset nvidia_uvm nvidia"
-    echo "        sudo modprobe nvidia nvidia_uvm"
-    echo "     B) 直接重启（推荐，最干净）"
+    echo "        sudo modprobe nvidia && sudo modprobe nvidia_uvm nvidia_modeset nvidia_drm"
+    echo "     B) 直接重启（最干净；同步过 DKMS 缓存的话重启不会丢）"
     echo
     echo "   ⚠ 重载前先确认没有程序占用 GPU：fuser -v /dev/nvidia*"
     echo "      有输出就先关掉（浏览器最常见），否则可能卡死内核。"
+    echo
+    echo "   ⚠ 重编会重新生成 nvidia.ko，**gen2 的 01 补丁会一起丢掉**。"
+    echo "      顺序应该是：00 白名单 → make → 同步 DKMS → 01 gen2 → 同步 DKMS。"
 }
 
 # ============================================================
