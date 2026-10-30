@@ -46,6 +46,24 @@
 
 ## 按驱动版本复现（先看这个）
 
+### ⛔ 占用规则：执行前 GPU 不能被任何程序占用
+
+**`02` 的 `start` 靠 `unbind`/`bind` 触发 probe。GPU 被占用时 `unbind` 会卡死在
+`device_release_driver_internal` 里，进程进 D 态、`kill -9` 无效，只能整机重启。**
+
+```bash
+fuser -v /dev/nvidia*      # ★ 有输出 → 先清掉那些程序，再往下做
+```
+
+| 常见占用者 | 处理 |
+|---|---|
+| 浏览器（Firefox / Chromium） | 关掉（最常见） |
+| **sddm 自带的 Xorg**（省电那套，父进程是 `sddm`） | `sudo systemctl stop sddm`（会结束图形会话，先存盘） |
+| CUDA 程序 / nvitop / 任何 GL 程序 | 关掉 |
+
+> 装好 02 之后 `gen2kr` 常驻守卫，所以**先推 Gen2、再起 sddm** 可以两全 ——
+> 补丁在位时 `cuInit` 不再降级，Xorg 起回来链路仍保持 Gen2。
+
 所有补丁与内核模块都按**驱动版本**归档在 `drivers/` 下，目前只有
 `580.178.04`（唯一完整验证过的组合）。**在版本目录里按编号顺序执行即可**，在执行前先行执行一下模块编译，即到对应 kernel 目录下执行make（脚本自动编译可能出错），
 不必回仓库根：
@@ -76,9 +94,7 @@ sudo bash 01-gen2-patch.sh revert
 sudo bash 00-whitelist.sh revert    # 如果第 0 步做过
 ```
 
-> ⚠ 每一步重载/重启前，先确认没有程序占用 GPU：
-> `fuser -v /dev/nvidia*`。有输出就先关掉（浏览器最常见），
-> 否则 `unbind` 会卡死内核、`kill -9` 无效，只能整机重启。
+> 每一步重载 / 重启前都要再过一遍「⛔ 占用规则」（`fuser -v /dev/nvidia*`）。
 
 每个版本的完整说明（偏移表、原理、验证数据）见
 `drivers/<版本>/README.md`。想换到别的驱动版本，看 `drivers/README.md`
