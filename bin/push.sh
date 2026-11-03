@@ -37,6 +37,7 @@ set -u
 source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
 DO_INSMOD=1             # 1 = 先 rmmod 再 insmod（清 triggered 标志）
+FORCE=0                 # 1 = --force，跳过链路状态前置检查
 WAIT_SECONDS=20         # 等链路升到 Gen2 的最长时间
 
 # 退出码
@@ -51,10 +52,11 @@ EXIT_PUSH_FAIL=2        # 推送未成功
 parse_args() {
     case "${1:-}" in
         --no-insmod) DO_INSMOD=0 ;;
+        --force)     FORCE=1 ;;
         "")          ;;
         *)
             err "未知参数 $1"
-            echo "   用法: sudo bash bin/push.sh [--no-insmod]"
+            echo "   用法: sudo bash bin/push.sh [--no-insmod] [--force]"
             exit 2
             ;;
     esac
@@ -86,6 +88,48 @@ check_preconditions() {
             warn "无法判定补丁状态，继续但可能无效" ;;
     esac
     return 0
+}
+
+# 链路状态前置检查（★ 只在「干净起点」才推送）
+#
+# 干净起点 = CAP2 0x0002 + TLS 1（原厂未解锁）。
+# 脏状态（例如 CAP2=0x0006 但 TLS=3，或 0x8841C 处于写入后的中间态）下继续推送，
+# 会把 0x8841C 写坏、产生 TLS=3，只能冷启动恢复。
+# 已经是 Gen2 就不要重复推。
+check_link_state() {
+    local out cap tls spd
+    out="$(read_regs)"
+    cap="$(printf '%s' "${out}" | grep -oE 'CAP2=0x[0-9a-f]+' | cut -d= -f2)"
+    tls="$(printf '%s' "${out}" | grep -oE 'TLS=[0-9]+'       | cut -d= -f2)"
+    spd="$(printf '%s' "${out}" | grep -oE 'SPEED=[0-9]+'     | cut -d= -f2)"
+
+    hdr "0b. 链路状态"
+    echo "   ${out}"
+
+    # 已在 Gen2 → 不用推
+    if [ "${cap}" = "0x0006" ] && [ "${tls}" = "2" ] && [ "${spd}" = "1" ]; then
+        ok "链路已是 Gen2，无需推送"
+        return 9
+    fi
+
+    # 干净起点
+    if [ "${cap}" = "0x0002" ] && [ "${tls}" = "1" ]; then
+        ok "干净起点（CAP2=0x0002 TLS=1）"
+        return 0
+    fi
+
+    # 其余一律视为脏状态
+    err "不是干净起点，拒绝推送"
+    echo "     期待：CAP2=0x0002 + TLS=1（原厂）或 CAP2=0x0006 + TLS=2 + SPEED=1（已 Gen2）"
+    echo "     实际：CAP2=${cap:-?} TLS=${tls:-?} SPEED=${spd:-?}"
+    echo "     ${C_R}脏状态下推送会写坏 0x8841C、产生 TLS=3，只能冷启动恢复。${C_0}"
+    echo "     建议：先整机重启，再从这个状态起推。"
+    if [ "${FORCE}" = "1" ]; then
+        warn "--force 已指定，仍然继续（风险自负）"
+        return 0
+    fi
+    echo "     确实要跳过检查：加 --force"
+    return 1
 }
 
 # 确保 gen2kr 在内存里，且 triggered 标志是干净的
@@ -193,6 +237,15 @@ main() {
     echo " 起点：$(read_regs)"
 
     check_preconditions      || exit "${EXIT_PRECHECK}"
+
+    local rc=0
+    check_link_state || rc=$?
+    case "${rc}" in
+        0)  ;;
+        9)  show_footer; exit 0 ;;          # 已经是 Gen2
+        *)  exit "${EXIT_PRECHECK}" ;;
+    esac
+
     ensure_gen2kr_loaded     || exit "${EXIT_PRECHECK}"
     trigger_probe            || exit "${EXIT_PRECHECK}"
     wait_for_gen2            || exit "${EXIT_PUSH_FAIL}"

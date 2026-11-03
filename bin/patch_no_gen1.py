@@ -69,10 +69,98 @@ bailret   0x1280c8  1 次
 import hashlib
 import os
 import shutil
+import subprocess
 import sys
 
-KO = "/lib/modules/%s/updates/dkms/nvidia.ko" % os.uname().release
-BAK = KO + ".orig_nogen1"
+ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
+
+
+def resolve_ko():
+    """找到真正的 nvidia.ko，可能是 .ko 也可能是 .ko.zst（DKMS/发行版常见）。
+
+    顺序：TARGET_KO 环境变量 → modinfo -n nvidia → 几个常见路径。
+    """
+    kv = os.uname().release
+    cands = []
+    if os.environ.get("TARGET_KO"):
+        cands.append(os.environ["TARGET_KO"])
+    try:
+        r = subprocess.run(["modinfo", "-n", "nvidia"],
+                           capture_output=True, text=True, timeout=20)
+        if r.returncode == 0 and r.stdout.strip():
+            cands.append(r.stdout.strip())
+    except (OSError, subprocess.SubprocessError):
+        pass
+    for base in ("/lib/modules/%s/updates/dkms" % kv,
+                 "/lib/modules/%s/updates" % kv,
+                 "/lib/modules/%s/kernel/drivers/video" % kv,
+                 "/lib/modules/%s/kernel/drivers/video/nvidia" % kv):
+        for name in ("nvidia.ko.zst", "nvidia.ko"):
+            cands.append(os.path.join(base, name))
+
+    seen = set()
+    for c in cands:
+        if c in seen:
+            continue
+        seen.add(c)
+        if os.path.isfile(c):
+            return c
+    return None
+
+
+KO = resolve_ko()
+IS_ZST = False
+if KO:
+    with open(KO, "rb") as _f:
+        IS_ZST = _f.read(4) == ZSTD_MAGIC
+BAK = (KO + ".orig_nogen1") if KO else ""
+
+
+def load_ko(path):
+    """读入**解压后的** ELF 字节。.zst 会先 zstd -d 到内存。"""
+    with open(path, "rb") as f:
+        raw = f.read()
+    if raw[:4] != ZSTD_MAGIC:
+        return raw
+    try:
+        r = subprocess.run(["zstd", "-d", "-c", "--", path], capture_output=True)
+    except OSError:
+        raise RuntimeError("需要 zstd 命令来解压 .ko.zst（apt install zstd）")
+    if r.returncode != 0:
+        raise RuntimeError("zstd 解压失败：%s" % r.stderr.decode("utf-8", "replace")[:200])
+    return r.stdout
+
+
+def store_ko(path, data):
+    """把**解压后**的 ELF 字节写回磁盘；原文件是 .zst 就重新压缩。
+
+    用「写临时文件 + os.replace」保证原子性，避免中途失败留下半截 .ko。
+    """
+    st = os.stat(path)
+    tmp = path + ".new"
+    with open(path, "rb") as f:
+        was_zst = f.read(4) == ZSTD_MAGIC
+
+    if was_zst:
+        level = os.environ.get("ZSTD_LEVEL", "19")
+        try:
+            r = subprocess.run(
+                ["zstd", "-q", "-T0", "-%s" % level, "-f", "-o", tmp, "-"],
+                input=data, capture_output=True)
+        except OSError:
+            raise RuntimeError("需要 zstd 命令来重新压缩（apt install zstd）")
+        if r.returncode != 0:
+            raise RuntimeError("zstd 压缩失败：%s" % r.stderr.decode("utf-8", "replace")[:200])
+    else:
+        with open(tmp, "wb") as f:
+            f.write(data)
+
+    os.chmod(tmp, st.st_mode)
+    try:
+        os.chown(tmp, st.st_uid, st.st_gid)
+    except PermissionError:
+        pass
+    os.replace(tmp, path)
 
 # ★ 唯一签名：从 entry 的 lea 到 ja 的完整 32 字节序列（全文件仅 1 处）
 SIG = bytes.fromhex(
@@ -123,20 +211,28 @@ def main():
     act = sys.argv[1] if len(sys.argv) > 1 else "check"
     if os.geteuid() != 0:
         print("需要 root"); return 1
-    if not os.path.exists(KO):
-        print(f"找不到 {KO}"); return 1
+    if not KO:
+        print("找不到 nvidia.ko（也没有 .ko.zst）")
+        print("  用 TARGET_KO=/path/to/nvidia.ko 显式指定")
+        return 1
 
     print(f"目标 {KO}")
+    print(f"格式 {'zstd 压缩（.ko.zst）' if IS_ZST else '未压缩 ELF'}")
     print(f"md5  {md5(KO)}")
-    with open(KO, "rb") as f:
-        data = f.read()
-    print(f"大小 {len(data):,}\n")
+    try:
+        data = load_ko(KO)
+    except RuntimeError as e:
+        print(f"!! {e}")
+        return 1
+    print(f"解压后 {len(data):,} 字节\n")
 
     if act == "revert":
         if not os.path.exists(BAK):
             print(f"没有备份 {BAK}"); return 2
         shutil.copy2(BAK, KO)
         print(f"已还原，md5 {md5(KO)}")
+        if KO.endswith(".zst"):
+            print("  （备份也是 .zst 格式，直接覆盖，无需再压缩）")
         return 0
 
     # ---- 定位 ----
@@ -178,14 +274,24 @@ def main():
         if not os.path.exists(BAK):
             shutil.copy2(KO, BAK)
             print(f"\n已备份 → {BAK}")
-        with open(KO, "r+b") as f:
-            f.seek(base + OFF_LEA); f.write(bytes([NEW_LEA]))
-            f.seek(base + OFF_CMP); f.write(bytes([NEW_CMP]))
-        with open(KO, "rb") as f:
-            nd = f.read()
-        print(f"已写入: {nd[base:base+len(SIG)].hex(' ')}")
+
+        nd = bytearray(data)
+        nd[base + OFF_LEA] = NEW_LEA
+        nd[base + OFF_CMP] = NEW_CMP
+        try:
+            store_ko(KO, bytes(nd))
+        except RuntimeError as e:
+            print(f"\n!! 写回失败：{e}")
+            return 2
+
+        print(f"已写入: {bytes(nd[base:base+len(SIG)]).hex(' ')}")
         print(f"新 md5: {md5(KO)}")
+        if IS_ZST:
+            print(f"  （已按 zstd -{os.environ.get('ZSTD_LEVEL', '19')} 重新压缩）")
         print("\n下一步：rmmod nvidia_uvm nvidia_modeset nvidia_drm nvidia → modprobe nvidia")
+        if IS_ZST:
+            print("⚠ DKMS 场景：模块已被改但 DKMS 缓存仍是旧的，")
+            print("   重装内核或 dkms install 会把补丁冲掉。跑 sync-dkms.sh adopt 固化。")
         return 0
 
     print(f"未知动作 {act}")

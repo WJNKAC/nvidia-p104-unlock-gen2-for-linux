@@ -49,9 +49,7 @@ find_kmod_dir() {
 KMOD_DIR="$(find_kmod_dir || true)"
 LOG_DIR="$PKG_ROOT/history/logs"
 
-DEV_BDF="0000:01:00.0"
-DEV_SHORT="01:00.0"
-ROOT_BDF="00:01.0"
+# DEV_BDF / DEV_SHORT / ROOT_BDF 由下方 discover_dev_bdf() 自动发现
 
 # BAR0 寄存器（只读用途）
 R_LNKCAP=0x88084
@@ -74,13 +72,37 @@ warn() { echo "${C_Y}⚠${C_0} $*"; }
 err()  { echo "${C_R}✗${C_0} $*"; }
 hdr()  { echo; echo "${C_B}=== $* ===${C_0}"; }
 
+# ---------- 目标设备自动发现（单一来源：drivers/<版本>/utils/bdf.sh） ----------
+# ★ 不要在这里再写一份 —— 重复实现会导致两处不一致，
+#   典型症状：10-check 说「P104 在总线」，但读出来的 cfg 是另一张卡的。
+#   TARGET_IDS / TARGET_BDF 由 bdf.sh 处理。
+_bdf_lib=""
+if [ -n "${GEN2_BDF_LIB:-}" ] && [ -r "${GEN2_BDF_LIB}" ]; then
+    _bdf_lib="${GEN2_BDF_LIB}"
+else
+    for _f in "${DRIVERS_DIR}"/*/utils/bdf.sh; do
+        [ -r "${_f}" ] && { _bdf_lib="${_f}"; break; }
+    done
+fi
+
+if [ -z "${_bdf_lib}" ]; then
+    err "找不到 drivers/<版本>/utils/bdf.sh（仓库结构不完整）"
+    echo "    期望位置：${DRIVERS_DIR}/<版本>/utils/bdf.sh"
+    exit 3
+fi
+
+# shellcheck source=/dev/null
+source "${_bdf_lib}"
+
+
 # ---------- 只读：读 BAR0 一组寄存器 ----------
 # 输出一行：CAP2=0x0006 LNKSTA=2 TLS=2 SPEED=1 MAXSPD=2
 read_regs() {
 python3 - <<'PY'
 import mmap, os, struct, sys
 try:
-    p = int(open('/sys/bus/pci/devices/0000:01:00.0/resource').readline().split()[0], 16)
+    _dev = os.environ.get('DEV_BDF', '0000:01:00.0')
+    p = int(open('/sys/bus/pci/devices/%s/resource' % _dev).readline().split()[0], 16)
     f = os.open('/dev/mem', os.O_RDWR | os.O_SYNC)
     m = mmap.mmap(f, 0x1000000, mmap.MAP_SHARED, mmap.PROT_READ, offset=p)
     g = lambda o: struct.unpack_from('<I', m, o)[0]
@@ -113,7 +135,8 @@ python3 - "$1" <<'PY'
 import mmap, os, struct, sys
 off = int(sys.argv[1], 16)
 try:
-    p = int(open('/sys/bus/pci/devices/0000:01:00.0/resource').readline().split()[0], 16)
+    _dev = os.environ.get('DEV_BDF', '0000:01:00.0')
+    p = int(open('/sys/bus/pci/devices/%s/resource' % _dev).readline().split()[0], 16)
     f = os.open('/dev/mem', os.O_RDWR | os.O_SYNC)
     m = mmap.mmap(f, 0x1000000, mmap.MAP_SHARED, mmap.PROT_READ, offset=p)
     print(struct.unpack_from('<I', m, off)[0])
@@ -166,14 +189,23 @@ need_root() {
 # 原厂 0x8841C = 0xc0b40500 → (v & 0xA800) == 0
 # 解锁 0x8841C = 0xc0b4ad00 → (v & 0xA800) == 0xA800
 is_stuck() {
-    local cfg cap
-    cfg="$(_r 0x8841C)"
-    cap="$(cap2)"
-    # 解锁位已置位，但声明没锁存、链路还是 Gen1 ⇒ 锁死
-    if [ "$(( cfg & 0xA800 ))" != "0" ] && [ "$cap" = "2" ] && [ "$(cur_speed)" = "1" ]; then
-        return 0
-    fi
-    return 1
+    local i cfg cap spd
+    # ★ 必须稳定观测，不能单次采样就判死。
+    #   写完解锁位、但重训还没完成时，0x8C040/0x8841C 已经是"写过"的样子，
+    #   而 LNKSTA 仍是 1 —— 此时单次采样会误报锁死，随后的 push 往往能成功。
+    #   （实测：成功那版也打印了"检测到锁死"，但第 3 节正常升到 Gen2。）
+    #   ⇒ 连续 3 次（间隔 0.7s，共约 1.4s，超过重训窗口）全部满足才算。
+    for i in 1 2 3; do
+        cfg="$(_r 0x8841C)"
+        cap="$(cap2)"
+        spd="$(cur_speed)"
+        # 任一次读到「解锁位未置位」或「已升到 Gen2」→ 立刻判否
+        if [ "$(( cfg & 0xA800 ))" = "0" ] || [ "${cap}" != "2" ] || [ "${spd}" != "1" ]; then
+            return 1
+        fi
+        [ "${i}" -lt 3 ] && sleep 0.7
+    done
+    return 0
 }
 
 # 检查探针是否就绪。默认只检查不编译（保持"只读脚本"的承诺）。

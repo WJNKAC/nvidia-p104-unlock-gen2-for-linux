@@ -14,18 +14,24 @@
 # ============================================================
 # 1. 路径
 # ============================================================
-VER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"     # drivers/<版本>/
+# _lib.sh 现在在 drivers/<版本>/utils/ 下
+UTILS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # drivers/<版本>/utils
+VER_DIR="$(cd "${UTILS_DIR}/.." && pwd)"                    # drivers/<版本>
 PKG_ROOT="$(cd "${VER_DIR}/../.." && pwd)"                  # 仓库根
 OFFSETS_FILE="${VER_DIR}/offsets.sh"
-PATCH_PY="${VER_DIR}/_patch.py"
+PATCH_PY="${UTILS_DIR}/_patch.py"
 
 KVER="$(uname -r)"
 KVER_SHORT="${KVER%%+*}"                                    # 6.12.113+deb13 → 6.12.113
 KERNEL_SRC_DIR="${VER_DIR}/kernel/${KVER_SHORT}"            # 模块源码目录
 
 KO="/lib/modules/${KVER}/updates/dkms/nvidia.ko"
-DEV_BDF="0000:01:00.0"
-DEV_SHORT="01:00.0"
+
+# ★ 目标设备 BDF 自动发现（单一来源：utils/bdf.sh）
+#   不要在这里硬编码 01:00.0 —— 多卡机上会操作错卡。
+#   可用 TARGET_BDF / TARGET_IDS 覆盖。
+# shellcheck source=./bdf.sh
+source "${UTILS_DIR}/bdf.sh"
 
 # 驱动源码目录（whitelist 补丁的输入）
 NVKERNEL_DIR="/usr/src/nvidia-580.178.04"
@@ -73,7 +79,8 @@ python3 - "$1" <<'PY'
 import mmap, os, struct, sys
 off = int(sys.argv[1], 16)
 try:
-    p = int(open('/sys/bus/pci/devices/0000:01:00.0/resource').readline().split()[0], 16)
+    _dev = os.environ.get('DEV_BDF', '0000:01:00.0')
+    p = int(open('/sys/bus/pci/devices/%s/resource' % _dev).readline().split()[0], 16)
     f = os.open('/dev/mem', os.O_RDWR | os.O_SYNC)
     m = mmap.mmap(f, 0x1000000, mmap.MAP_SHARED, mmap.PROT_READ, offset=p)
     print(struct.unpack_from('<I', m, off)[0])
@@ -88,7 +95,8 @@ read_regs() {
 python3 - <<'PY'
 import mmap, os, struct
 try:
-    p = int(open('/sys/bus/pci/devices/0000:01:00.0/resource').readline().split()[0], 16)
+    _dev = os.environ.get('DEV_BDF', '0000:01:00.0')
+    p = int(open('/sys/bus/pci/devices/%s/resource' % _dev).readline().split()[0], 16)
     f = os.open('/dev/mem', os.O_RDWR | os.O_SYNC)
     m = mmap.mmap(f, 0x1000000, mmap.MAP_SHARED, mmap.PROT_READ, offset=p)
     g = lambda o: struct.unpack_from('<I', m, o)[0]

@@ -33,8 +33,8 @@ import struct
 import subprocess
 import sys
 
-DEV = "01:00.0"
-ROOT = "00:01.0"
+DEV = os.environ.get("DEV_BDF", "0000:01:00.0")[-8:]
+ROOT = os.environ.get("ROOT_BDF", "0000:00:01.0")[-7:]
 
 # PCIe capability 内偏移
 CAP_LNKCAP = 0x0C

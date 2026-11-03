@@ -480,6 +480,20 @@ sudo modprobe nvidia && sudo modprobe nvidia_uvm
 
 ## 注意事项与已知限制
 
+### 多卡机器：脚本会自动找卡，多张同型卡需显式指定
+
+脚本不再硬编码 `01:00.0`，而是按 `10de:1b87`（P104-100）扫 `/sys/bus/pci/devices`。
+找到 **0 张或多张**都会**报错退出**，不会猜：
+
+```bash
+bash drivers/580.178.04/utils/bdf.sh                 # 只看发现结果
+TARGET_BDF=0000:02:00.0 sudo -E bash bin/push.sh     # 显式指定
+TARGET_IDS="1b87 1c07" sudo -E bash bin/10-check.sh  # 多个 device id 一起找
+```
+
+早期版本硬编码 `01:00.0`，在多卡机上会对着另一张卡（如 P100）读写，
+产生「CAP2=0x0006 但 LNKSTA 恒 1041」的**假锁死**。
+
 ### 会丢失补丁的情况
 驱动升级、DKMS 重编、换内核 → `nvidia.ko` 被重新生成，**补丁静默丢失**（不会报错）。
 症状：某天突然带宽腰斩回 0.78。

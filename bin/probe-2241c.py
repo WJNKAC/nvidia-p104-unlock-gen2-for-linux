@@ -24,7 +24,7 @@ import os
 import struct
 import sys
 
-DEV_RES = "/sys/bus/pci/devices/0000:01:00.0/resource"
+DEV_RES = "/sys/bus/pci/devices/%s/resource" % os.environ.get("DEV_BDF", "0000:01:00.0")
 
 REGS = [
     (0x88084, "LNKCAP ", "最大速率声明 (bits[3:0])"),

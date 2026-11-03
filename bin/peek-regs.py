@@ -23,7 +23,7 @@ REGS = [
 def main():
     if os.geteuid() != 0:
         print("需要 root"); return 1
-    p = int(open("/sys/bus/pci/devices/0000:01:00.0/resource")
+    p = int(open("/sys/bus/pci/devices/%s/resource" % os.environ.get("DEV_BDF", "0000:01:00.0"))
             .readline().split()[0], 16)
     f = os.open("/dev/mem", os.O_RDWR | os.O_SYNC)
     m = mmap.mmap(f, 0x1000000, mmap.MAP_SHARED, mmap.PROT_READ, offset=p)

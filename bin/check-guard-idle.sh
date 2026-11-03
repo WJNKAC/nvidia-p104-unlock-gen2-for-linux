@@ -19,7 +19,7 @@ st() {
 python3 - <<'PY'
 import mmap,os,struct
 try:
-    p=int(open('/sys/bus/pci/devices/0000:01:00.0/resource').readline().split()[0],16)
+    p=int(open('/sys/bus/pci/devices/%s/resource' % os.environ.get('DEV_BDF', '0000:01:00.0')).readline().split()[0],16)
     f=os.open('/dev/mem',os.O_RDWR|os.O_SYNC)
     m=mmap.mmap(f,0x1000000,mmap.MAP_SHARED,mmap.PROT_READ,offset=p)
     a=struct.unpack_from('<I',m,0x880A4)[0]

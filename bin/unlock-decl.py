@@ -35,7 +35,7 @@ import subprocess
 import sys
 import time
 
-DEV = "0000:01:00.0"
+DEV = os.environ.get("DEV_BDF", "0000:01:00.0")
 ROOT = "00:01.0"
 GRACE = 20
 
