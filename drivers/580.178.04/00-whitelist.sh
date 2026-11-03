@@ -125,12 +125,13 @@ def read5(path):
 cur = read5(binp)
 orig = read5(origp) if os.path.exists(origp) else None
 
-# 本机这张卡
+# 本机这张卡（BDF 由 utils/bdf.sh 决定，经环境变量传进来）
 local = None
 try:
-    with open("/sys/bus/pci/devices/0000:01:00.0/vendor") as f:
+    _bdf = os.environ.get("DEV_BDF", "0000:01:00.0")
+    with open("/sys/bus/pci/devices/%s/vendor" % _bdf) as f:
         v = int(f.read().strip(), 16)
-    with open("/sys/bus/pci/devices/0000:01:00.0/device") as f:
+    with open("/sys/bus/pci/devices/%s/device" % _bdf) as f:
         local = int(f.read().strip(), 16)
 except Exception:
     pass
