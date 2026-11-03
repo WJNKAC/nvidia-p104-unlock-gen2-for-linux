@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""patch_no_gen1.py —— 阻止驱动在 cuInit 时把链路降回 Gen1
+"""patch-gen2.py —— 阻止驱动在 cuInit 时把链路降回 Gen1
 
 ## 结论前置（reports/199 实测）
 
@@ -60,9 +60,9 @@ bailret   0x1280c8  1 次
 | **本方案** | **2 个字节** | 边界平移，白名单收窄，零附带影响 |
 
 ## 用法
-  sudo python3 patch_no_gen1.py check
-  sudo python3 patch_no_gen1.py apply
-  sudo python3 patch_no_gen1.py revert
+  sudo python3 patch-gen2.py check
+  sudo python3 patch-gen2.py apply
+  sudo python3 patch-gen2.py revert
 
 ⚠ apply 后必须重载 nvidia 模块（或重启）才生效。
 """

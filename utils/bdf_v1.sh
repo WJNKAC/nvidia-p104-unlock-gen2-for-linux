@@ -2,7 +2,7 @@
 # ============================================================
 # utils/bdf.sh —— 目标 GPU 的 PCIe BDF 自动发现（**单一来源**）
 #
-# 被 drivers/<版本>/utils/_lib.sh 和 bin/_common.sh source。
+# 被 utils/lib_v1.sh 和 utils/lib_v1.sh source。
 #
 # 为什么必须自动发现：
 #   硬编码 01:00.0 时，多卡机上会**对着错卡读写**。同机还有一张已满速 Gen3 的

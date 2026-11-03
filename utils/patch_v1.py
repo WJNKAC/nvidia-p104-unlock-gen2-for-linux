@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""_patch.py —— JSON 规格驱动的通用二进制补丁器
+"""patch_v1.py —— JSON 规格驱动的通用二进制补丁器
 
 被 00-whitelist.sh / 01-gen2-patch.sh 调用，不直接运行。
 
 用法（内部）：
-    python3 _patch.py <action> <spec_json>
+    python3 patch_v1.py <action> <spec_json>
 
 spec 结构：
     {
@@ -235,7 +235,7 @@ def do_write(action, spec, data, md5_now, states, path):
 # ============================================================
 def main():
     if len(sys.argv) < 4:
-        err("内部用法: _patch.py <action> <spec_json> <parent_script>")
+        err("内部用法: patch_v1.py <action> <spec_json> <parent_script>")
         return 1
 
     action = sys.argv[1]

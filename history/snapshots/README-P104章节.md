@@ -19,14 +19,14 @@ P104-100 PCIe Gen2 课题（reports 176-197）
 | 198 | 机制终局：驱动在 `rm_init_adapter` 里**主动要求 Gen1**；`0x8872C` 驱动零引用；COMMIT 非毒药；状态污染只能重启 |
 | **199** | **★★★ 突破**：2 字节补丁阻止降级，链路常驻 Gen2；353 轮长跑零掉速、1.56/1.71 GB/s |
 | **200** | 部署特性：**补丁只"保持"、gen2kr 才"建立"**；装补丁驱动≠一劳永逸，重启须跑一次 20-install |
-| **201** | **免重载推送**：`unbind/bind` 就够（触发同一个 `nv_pci_probe`），新增 `bin/push.sh`；修正"reload 会复位声明"的旧结论 |
+| **201** | **免重载推送**：`unbind/bind` 就够（触发同一个 `nv_pci_probe`），新增 `patches/<版本>/03-gen2-push-light.sh`；修正"reload 会复位声明"的旧结论 |
 
 **交付包**：`/data/labs/nvidia/nvidia-p104-unlock-gen2-for-linux/`（自包含，已从原厂状态完整复现）
 
 **P104 最终方案（reports/199）**：
 ```bash
-sudo python3 pcie-gen2/tools/patch_no_gen1.py check    # 自查补丁是否还在
-sudo python3 pcie-gen2/tools/patch_no_gen1.py apply    # 驱动升级后需重新打
+sudo python3 pcie-gen2/tools/patch-gen2.py check    # 自查补丁是否还在
+sudo python3 pcie-gen2/tools/patch-gen2.py apply    # 驱动升级后需重新打
 # 然后 modprobe nvidia → insmod gen2kr.ko → unbind/bind 一次
 ```
 

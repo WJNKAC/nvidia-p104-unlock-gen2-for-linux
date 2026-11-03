@@ -105,7 +105,7 @@ sudo bash 00-whitelist.sh revert    # 如果第 0 步做过
 仓库根有一套一体化工具，干的是同一件事（改同一批字节），按你习惯选一条路走：
 
 ```bash
-sudo bash bin/20-install.sh     # 打补丁 + 编译模块 + 推送，全自动
+sudo bash 02-install.sh     # 打补丁 + 编译模块 + 推送，全自动
 ```
 
 展开版（编译、自检、验证、回滚）见下面的「快速开始」。
@@ -202,7 +202,7 @@ bail 跳到 `1280c8`，那是函数唯一的 return 点，返回 `%r12d` ——
 `20-install.sh` 原本用「`CAP2=0x0002` + `TLS=1` + Gen1」判断"驱动侧锁死态"，
 但这**正是原厂未解锁的正常样子** —— 干净机器重启后必然触发误报。
 
-改成用 `is_stuck()`（在 `bin/_common.sh`）判断真正的锁死态特征 ——
+改成用 `is_stuck()`（在 `utils/lib_v1.sh`）判断真正的锁死态特征 ——
 **解锁位写过了但没生效**：
 
 ```
@@ -231,7 +231,7 @@ LNKSTA=1  LCAP2=0x0002  TLS=1  0x8841C=0xc0b40500
 
 ```bash
 # 在仓库根目录执行（脚本自己算路径，不依赖安装位置）
-sudo bash bin/push.sh
+sudo bash patches/<版本>/03-gen2-push-light.sh
 ```
 
 它等价于手动做这三步（★ 注意 `gen2kr.ko` 是编译产物，先跑过一次 `bin/build.sh`）：
@@ -260,21 +260,21 @@ sudo sh -c 'echo 0000:01:00.0 > /sys/bus/pci/drivers/nvidia/unbind
 
 | 场景 | 要重载吗 |
 |---|---|
-| 刚 `patch_no_gen1.py apply`（.ko 变了） | **要** —— 不重载内核跑的还是旧代码 |
+| 刚 `patch-gen2.py apply`（.ko 变了） | **要** —— 不重载内核跑的还是旧代码 |
 | 重启后（补丁早在 .ko 里） | **不要** —— `push.sh` 就够 |
 | 补丁丢失后重新 apply | **要** |
 
-`bin/20-install.sh` 会自动判断（比对 apply 前后 md5）：
+`02-install.sh` 会自动判断（比对 apply 前后 md5）：
 - `.ko` 变了 → `✓ 补丁是新写入的 ⇒ 需要重载`
 - `.ko` 没变 → `✓ 补丁本来就在（.ko 未变）⇒ 不需要重载`
 
-也可以强制：`sudo bash bin/20-install.sh --no-reload`
+也可以强制：`sudo bash 02-install.sh --no-reload`
 
 ### 自动化三选项（按侵入性）
 
 | 选项 | 做法 | 侵入性 |
 |---|---|---|
-| **A. 手动**（当前） | 开机后跑 `bin/push.sh`（约 3 秒，不重载 nvidia） | 无 |
+| **A. 手动**（当前） | 开机后跑 `patches/<版本>/03-gen2-push-light.sh`（约 3 秒，不重载 nvidia） | 无 |
 | B. modprobe softdep | 给 gen2kr 加 init 时推送 + `/etc/modprobe.d/nvidia.conf` 写 `softdep nvidia post: gen2kr` | 低。**未实现、未验证** |
 | C. systemd service | 装 `drivers/<版本>/kernel/<内核>/gen2kr.service` | 高（用户要求不装） |
 
@@ -296,25 +296,25 @@ cd nvidia-p104-unlock-gen2-for-linux
 # 1) 编译
 #    ★ 必须用普通用户，不要 sudo —— 权限不对时 root 编译产物会归 root
 #    ★ 内核模块必须在【跑 P104 的那台机器】上编（要匹配它的 /lib/modules/$(uname -r)）
-bash bin/build.sh
+bash src/build.sh
 
 # 2) 自检（纯只读，不改任何东西）
-sudo bash bin/10-check.sh
+sudo bash check/10-check.sh
 
 # 3) 先看计划，确认无误（dry-run 完全不动系统）
-sudo bash bin/20-install.sh --dry-run
+sudo bash 02-install.sh --dry-run
 
 # 4) 首次安装（会打补丁 + 重载一次驱动 + 推送）
-sudo bash bin/20-install.sh
+sudo bash 02-install.sh
 
 #    之后（例如重启后）只需轻量推送，不重载 nvidia：
-sudo bash bin/push.sh
+sudo bash patches/<版本>/03-gen2-push-light.sh
 
 # 5) 验证
-sudo bash bin/30-verify.sh --full
+sudo bash check/30-verify.sh --full
 
 # 回滚（随时）
-sudo bash bin/90-revert.sh
+sudo bash 90-revert.sh
 ```
 
 ### 在别的机器上编译用户态部分
@@ -322,7 +322,7 @@ sudo bash bin/90-revert.sh
 但 `gen2kr.ko` 必须匹配目标内核：
 
 ```bash
-bash bin/build.sh --user-only      # 只编用户态探针
+bash src/build.sh --user-only      # 只编用户态探针
 ```
 
 ---
@@ -332,7 +332,7 @@ bash bin/build.sh --user-only      # 只编用户态探针
 下面是最小可复现步骤。假设：
 - 你已经在**仓库根目录**（clone 下来的那个目录），下文用相对路径
 - 设备 `0000:01:00.0`
-- 驱动 `/lib/modules/$(uname -r)/updates/dkms/nvidia.ko`（若你的驱动装在别处，见 `bin/_common.sh` 的 `KO`）
+- 驱动 `/lib/modules/$(uname -r)/updates/dkms/nvidia.ko`（若你的驱动装在别处，见 `utils/lib_v1.sh` 的 `KO`）
 
 ### 步骤 0 —— 编译探针和模块
 
@@ -355,7 +355,7 @@ cp gen2kr.ko ../build/
 cd ..        # 回到仓库根目录，后面的命令都在这里执行
 ```
 
-或者直接 `bash bin/build.sh` 一次做完上面三件。
+或者直接 `bash src/build.sh` 一次做完上面三件。
 
 ### 步骤 1 —— 确认起始状态
 
@@ -382,10 +382,10 @@ sudo python3 bin/peek-regs.py
 
 ```bash
 # 先看补丁能不能唯一定位（会打印签名命中数和待改字节）
-sudo python3 bin/patch_no_gen1.py check
+sudo python3 patches/<版本>/patch-gen2.py check
 
 # 打补丁（自动备份到 nvidia.ko.orig_nogen1）
-sudo python3 bin/patch_no_gen1.py apply
+sudo python3 patches/<版本>/patch-gen2.py apply
 ```
 
 期望输出：
@@ -459,7 +459,7 @@ sudo insmod build/gen2kr.ko
 
 ```bash
 sudo rmmod gen2kr 2>/dev/null
-sudo python3 bin/patch_no_gen1.py revert
+sudo python3 patches/<版本>/patch-gen2.py revert
 sudo rmmod nvidia_uvm nvidia_modeset nvidia_drm nvidia 2>/dev/null
 sudo modprobe nvidia && sudo modprobe nvidia_uvm
 ```
@@ -486,9 +486,9 @@ sudo modprobe nvidia && sudo modprobe nvidia_uvm
 找到 **0 张或多张**都会**报错退出**，不会猜：
 
 ```bash
-bash drivers/580.178.04/utils/bdf.sh                 # 只看发现结果
-TARGET_BDF=0000:02:00.0 sudo -E bash bin/push.sh     # 显式指定
-TARGET_IDS="1b87 1c07" sudo -E bash bin/10-check.sh  # 多个 device id 一起找
+bash utils/bdf_v1.sh                 # 只看发现结果
+TARGET_BDF=0000:02:00.0 sudo -E bash patches/<版本>/03-gen2-push-light.sh     # 显式指定
+TARGET_IDS="1b87 1c07" sudo -E bash check/10-check.sh  # 多个 device id 一起找
 ```
 
 早期版本硬编码 `01:00.0`，在多卡机上会对着另一张卡（如 P100）读写，
@@ -500,7 +500,7 @@ TARGET_IDS="1b87 1c07" sudo -E bash bin/10-check.sh  # 多个 device id 一起�
 
 ```bash
 # 随时自查
-sudo python3 bin/patch_no_gen1.py check
+sudo python3 patches/<版本>/patch-gen2.py check
 # [已打补丁] → 正常
 # [未打补丁] → 重新 apply 即可，不用重启
 ```
@@ -546,64 +546,120 @@ LnkCap MaxSpeed=1  +  CAP2=0x0002  +  TLS=1  +  LNKSTA 恒为 1
 
 ```
 .
-├── README.md                  ← 本文件
-├── bin/
-│   ├── _common.sh             ← 公共路径/寄存器读取/判定（is_gen2 / alive / is_stuck）
-│   ├── build.sh               ← 编译探针与模块
-│   ├── 10-check.sh            ← 环境自检（只读）
-│   ├── 20-install.sh          ← 首次安装（打补丁 + 自动判断是否重载 + 推送）
-│   ├── push.sh                ← 轻量推送（insmod + unbind/bind，不重载 nvidia）
-│   ├── 30-verify.sh           ← 验证（--full 加做补丁独立性）
-│   ├── 90-revert.sh           ← 完全回滚
-│   ├── patch_no_gen1.py       ← ★ 2 字节补丁（check/apply/revert）
-│   ├── verify_patch.py        ← 在副本上验证补丁（不动线上文件）
-│   ├── peek-regs.py           ← 只读打印 8 个关键寄存器
-│   ├── linkcap-audit.py       ← 只读审计端点/根端口能力
-│   ├── unlock-decl.py         ← 只做声明解锁 + 触发训练
-│   ├── force-gen2.py          ← 反复 push 直到 Gen2（带寄存器判定）
-│   ├── check-guard-idle.sh    ← 验证守卫是否零动作
-│   ├── test-no-gen1.sh        ← 摘守卫验证补丁独立性
-│   ├── test-patch-alone.sh    ← 验证"只有补丁"时到不了 Gen2
-│   ├── trace-mode1.sh         ← perf 四点断点，判 mode=1 走哪条路
-│   ├── measure-recovery.sh    ← 量化"降级→恢复"耗时
-│   └── soak.sh                ← 长跑（N 轮降级-恢复 + 周期带宽）
-├── src/
-│   ├── minictx.c              ← 零 DMA 上下文探针
-│   └── bwtest2.c              ← 带宽测试
+├── README.md                  本文件
+├── VERSION
+│
+├── 01-check.sh                ← 入口：环境自检（只读，转调 check/）
+├── 02-install.sh              ← 入口：安装（01 改编译输入 → 04 重编安装 → 重载 → 推链路）
+├── 03-verify.sh               ← 入口：验证（转调 check/）
+├── 90-revert.sh               ← 入口：完全回滚
+│
+├── check/                     只读检查与诊断（不动任何文件）
+│   ├── 10-check.sh            环境自检
+│   ├── 30-verify.sh           链路/带宽验证（--full 加做补丁独立性）
+│   ├── peek-regs.py           打印 8 个关键寄存器
+│   ├── linkcap-audit.py       审计端点/根端口能力
+│   ├── verify_patch.py        在副本上验证补丁（不动线上文件）
+│   ├── probe-2241c.py         读 0x2241C 相关状态
+│   ├── unlock-decl.py         只做声明解锁 + 触发训练
+│   ├── force-gen2.py          反复 push 直到 Gen2（寄存器判定）
+│   ├── check-guard-idle.sh    验证守卫是否零动作
+│   ├── measure-recovery.sh    量化「降级→恢复」耗时
+│   └── soak.sh                长跑（N 轮降级-恢复 + 周期带宽）
+│
+├── src/                       探针源码 + 编译
+│   ├── minictx.c              零 DMA 上下文探针
+│   ├── bwtest2.c              带宽测试
+│   └── build.sh               编译探针 → build/
+│
+├── patches/                   ★ 按驱动版本组织
+│   └── 580.178.04/            唯一完整验证过的版本
+│       ├── 00-whitelist.sh    前置（可选）：解除受限 SKU
+│       ├── 01-gen2-patch.sh   必做：改 **nv-kernel.o_binary**（编译输入）
+│       ├── 02-gen2-push.sh    必做：编译 gen2kr → insmod → unbind/bind 推链路
+│       ├── 03-gen2-push-light.sh  可选：轻量推送（不重编，只重新 probe）
+│       ├── 04-build-nvidia.sh 必做：重编 nvidia.ko + 安装 + 同步 DKMS
+│       ├── patch-gen2.py      2 字节补丁的具体实现（被 01 调用）
+│       ├── offsets.sh         机器可读的偏移（可 source）
+│       ├── sync-dkms.sh       DKMS 三处 .ko 同步（防重编后被覆盖）
+│       ├── README.md          简介 + 偏移表 + 验证数据
+│       ├── src/kernel/        内核模块源码（gen2kr 拦截模块）
+│       │   ├── gen2kr.c
+│       │   └── Makefile
+│       └── output/            编译产物（gen2kr.ko、nvidia.ko；不入库）
+│
+├── utils/                     ★ 公共库（带版本号，见下）
+│   ├── bdf_v1.sh              目标 GPU 的 PCIe BDF 自动发现（单一来源）
+│   ├── lib_v1.sh              路径/颜色/寄存器/GPU 检查/模块编译
+│   └── patch_v1.py            通用二进制补丁器（JSON 规格驱动）
+│
 ├── docs/
 │   ├── 原理-驱动为什么降Gen1.md
 │   ├── 寄存器参考.md
 │   ├── 安全纪律.md
 │   ├── 实验历程.md
 │   ├── 故障排查.md
-│   └── 部署与持久化.md
-├── drivers/                   ← ★ 按版本组织的补丁与内核模块（见 drivers/README.md）
-│   └── 580.178.04/            ← 唯一完整验证过的驱动版本
-│       ├── README.md          ←   简介 + 偏移表 + 验证数据
-│       ├── offsets.sh         ←   机器可读的偏移（可 source）
-│       ├── 00-whitelist.sh    ←   前置（可选）：解除受限 SKU
-│       ├── 01-gen2-patch.sh   ←   必做：改 nvidia.ko（不再降级）
-│       ├── 02-gen2-push.sh    ←   必做：加载模块 + 推送链路（start/stop/status）
-│       ├── _lib.sh            ←   公共 bash 函数
-│       ├── _patch.py          ←   通用二进制补丁器（JSON 规格驱动）
-│       ├── kernel/            ←   内核模块，按【内核版本】再分一层
-│       │   └── 6.12.113/      ←     在这套内核上编译并验证过
-│       │       ├── gen2kr.c   ←       kretprobe + push + 守卫
-│       │       ├── Makefile
-│       │       └── gen2kr.service
-├── history/                   ← ★ 历史归档（见 history/README.md）
-│   ├── README.md              ← 归档索引与阅读顺序
-│   ├── pcie-gen2/             ← 整个课题工作目录（294 文件，含 3 个参考项目）
-│   ├── reports/               ← 27 篇 Gen2 核心报告（175-201）
-│   ├── snapshots/             ← STATUS/README 的 Gen2 章节快照
-│   ├── refs/                  ← 背景材料
-│   ├── legacy/                ← 失败实验（test-declare-heal.sh）
-│   ├── kmod-legacy/           ← 早期内核模块方案（gen2kp / gen2hw）
-│   ├── logs/                  ← 复现长跑日志 + 事故记录
-│   ├── git-建立记录.md        ← 仓库建立过程（面向维护者）
-│   └── ko-local-说明.md       ← 分析用 .ko 的版本信息（大文件未归档）
-└── build/                     ← 编译产物（build.sh 生成，不入库）
+│   ├── 部署与持久化.md
+│   └── utils-版本.md          ★ utils 的版本演进记录（旧版本在此留位）
+│
+├── history/                   历史归档（含脱敏的会话记录）
+│   ├── reports/               27 篇 Gen2 核心报告（175-201）
+│   ├── pcie-gen2/             整个课题工作目录
+│   ├── snapshots/ refs/ logs/
+│   ├── legacy/                一次性实验脚本（test-no-gen1 / test-patch-alone / trace-mode1）
+│   ├── kmod-legacy/           早期内核模块方案
+│   └── sessions/              ★ 与 AI 的会话记录（脱敏）
+│
+└── build/                     探针编译产物（src/build.sh 生成，不入库）
 ```
+
+### utils 的版本命名约定
+
+```
+utils/bdf_v1.sh      →  函数 bdf_discover_v1()
+utils/lib_v1.sh      →  函数 read_regs_v1() / is_stuck_v1() ...
+```
+
+| 情况 | 叠版本号？ |
+|---|---|
+| 新增选项 / 新增功能 / 行为变化 | **是**（`lib_v2.sh`，新函数 `xxx_v2()`） |
+| 纯重构（不改行为） | **否**，原地改 |
+
+旧版本**没有任何引用后删除**，但要在 `docs/utils-版本.md` 里**留一行记录**（保留空位，
+说明哪版删了、为什么、被谁取代）。新版本号继续往上叠，**不复用旧号**。
+
+### patches 里为什么不直接改 .ko
+
+`nvidia.ko` 是编译产物。直接改它，任何一次 `make` / `dkms install` / 装新内核
+都会把你改的字节覆盖掉——这正是过去「重启后 19fps 依旧」的根因之一。
+
+现在改成**改编译输入**（`nv-kernel.o_binary`），再走 `04-build-nvidia.sh`
+重编并安装，产物从源头就是对的：
+
+```
+01 改 nv-kernel.o_binary  →  04 make  →  output/nvidia.ko
+                          →  DKMS 缓存  →  /lib/modules/.../updates/dkms/nvidia.ko
+```
+
+`04` 装完会自动调 `sync-dkms.sh adopt` 固化，否则下次 `dkms install` 又会覆盖。
+
+> **局部模块**（gen2kr 这种只做拦截的）不在这里编 —— 它跟驱动版本无关、
+> 只跟内核版本有关，所以由 `02-gen2-push.sh` 自己编译到 `output/`。
+
+### 判定补丁状态：只看签名，不看 md5
+
+`nv-kernel.o_binary` 可能先被 `00-whitelist.sh` 改过（受限设备表），
+所以它的 md5 注定和任何"记录值"对不上。**用 md5 判定只会制造假警报。**
+
+现在统一用 32 字节签名命中数：
+
+| 原始签名 | 补丁签名 | 结论 |
+|---|---|---|
+| 1 处 | 0 处 | 未打 |
+| 0 处 | 1 处 | 已打 |
+| 其它 | 其它 | 未知（拒绝操作） |
+
+`04-build-nvidia.sh check` 会同时给出编译输入与三处 `.ko` 的签名状态。
 
 ## 脚本结构约定
 
@@ -707,7 +763,7 @@ User=
 | 依赖 | `linux-headers-$(uname -r)`、`gcc`、`python3`、`pciutils`、`libcuda.so.1` |
 
 RM 偏移在 6.12 上**未变**：`_nv017105rm` = `.text+0x127d60`。
-其他内核版本请先跑 `patch_no_gen1.py check` 确认签名能唯一命中。
+其他内核版本请先跑 `patch-gen2.py check` 确认签名能唯一命中。
 
 ---
 
@@ -721,7 +777,7 @@ RM 偏移在 6.12 上**未变**：`_nv017105rm` = `.text+0x127d60`。
 |---|---|
 | 脚本（`bin/*.sh`、`bin/*.py`） | AI 编写 |
 | 内核模块（`drivers/<版本>/kernel/<内核>/gen2kr.c`） | AI 编写 |
-| 二进制补丁（`bin/patch_no_gen1.py` 及补丁本身） | AI 分析逆向、定位偏移、设计改法 |
+| 二进制补丁（`patches/<版本>/patch-gen2.py` 及补丁本身） | AI 分析逆向、定位偏移、设计改法 |
 | 文档（`docs/*.md`、本 README） | AI 编写 |
 | 逆向分析结论（调用链、寄存器语义、能力位） | AI 通过 perf 断点 + 静态反汇编得出 |
 

@@ -8,16 +8,15 @@
 # 然后重载驱动。
 #
 # 用法：
-#   sudo bash bin/90-revert.sh --dry-run
-#   sudo bash bin/90-revert.sh
+#   sudo bash 90-revert.sh --dry-run
+#   sudo bash 90-revert.sh
 # ============================================================
 set -u
 
 # ============================================================
 # 1. 变量
 # ============================================================
-source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
-
+source "$(dirname "${BASH_SOURCE[0]}")/utils/lib_v1.sh"
 DRY=0                   # 1 = 只打印计划
 
 # nvidia 模块的卸载顺序（依赖关系：drm → modeset → uvm → 主模块）
@@ -34,7 +33,7 @@ parse_args() {
         "")        ;;
         *)
             err "未知参数 $1"
-            echo "   用法: sudo bash bin/90-revert.sh [--dry-run]"
+            echo "   用法: sudo bash 90-revert.sh [--dry-run]"
             exit 2
             ;;
     esac
@@ -66,12 +65,12 @@ step_revert_patch() {
     hdr "2. 还原 nvidia.ko"
 
     if [ "${DRY}" = "1" ]; then
-        python3 "${PKG_ROOT}/bin/patch_no_gen1.py" check 2>&1 | sed 's/^/   /'
-        echo "   ${C_Y}[dry-run]${C_0} python3 bin/patch_no_gen1.py revert"
+        python3 "${PATCH_DIR}/patch-gen2.py" check 2>&1 | sed 's/^/   /'
+        echo "   ${C_Y}[dry-run]${C_0} python3 patches/<版本>/patch-gen2.py revert"
         return 0
     fi
 
-    python3 "${PKG_ROOT}/bin/patch_no_gen1.py" revert \
+    python3 "${PATCH_DIR}/patch-gen2.py" revert \
         || warn "还原失败（可能本来就没打补丁）"
     echo "   当前 md5 = $(md5sum "${KO}" | cut -d' ' -f1)"
 }
@@ -113,7 +112,7 @@ show_footer() {
     echo "======================================================"
     if [ "${DRY}" = "0" ]; then
         echo " 已回滚。链路现在应为 Gen1（$(cur_speed)）—— 这是原厂默认行为。"
-        echo " 想重新解锁：sudo bash bin/20-install.sh"
+        echo " 想重新解锁：sudo bash 02-install.sh"
     else
         echo " dry-run 结束，未改动任何东西"
     fi

@@ -59,7 +59,7 @@ gcc      14.2.0（与内核构建时一致）
 
 ```bash
 # 在仓库根目录
-bash bin/build.sh
+bash src/build.sh
 
 # 或手动（★ 不要用 sudo，产物会被 root 拥有）
 cd drivers/580.178.04/kernel/6.12.113

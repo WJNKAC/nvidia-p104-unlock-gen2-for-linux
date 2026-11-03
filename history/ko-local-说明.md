@@ -4,7 +4,7 @@
 
 - 它是 `/lib/modules/$(uname -r)/updates/dkms/nvidia.ko` 的副本，**随时可以从系统重建**
 - 体积占归档的 20 倍，且内容完全相同
-- 补丁工具（`bin/patch_no_gen1.py`）操作的是 `/lib/modules/...` 那份，不是这个副本
+- 补丁工具（`patches/<版本>/patch-gen2.py`）操作的是 `/lib/modules/...` 那份，不是这个副本
 
 ## 需要时怎么重建
 

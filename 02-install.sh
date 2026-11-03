@@ -11,22 +11,21 @@
 # ★ 什么时候需要重载 nvidia，什么时候不需要：
 #   · 刚 apply 过补丁 ⇒ **必须重载**（改的是 .ko 文件，不重载读的还是旧代码）
 #   · 补丁早就在 .ko 里（例如重启后）⇒ **不必重载**，只要让设备重新 probe 一次
-#   后者用 bin/push.sh 更快、更轻。本脚本会自动判断。
+#   后者用 patches/<版本>/03-gen2-push-light.sh 更快、更轻。本脚本会自动判断。
 #
 # 用法：
-#   sudo bash bin/20-install.sh --dry-run     # 只打印计划，不改任何东西
-#   sudo bash bin/20-install.sh               # 执行（自动决定是否重载）
-#   sudo bash bin/20-install.sh --no-patch    # 不打补丁，只加载 gen2kr（旧方案）
-#   sudo bash bin/20-install.sh --no-kmod     # 只打补丁（用于已解锁过的场景）
-#   sudo bash bin/20-install.sh --no-reload   # 强制不重载 nvidia（同 push.sh）
+#   sudo bash 02-install.sh --dry-run     # 只打印计划，不改任何东西
+#   sudo bash 02-install.sh               # 执行（自动决定是否重载）
+#   sudo bash 02-install.sh --no-patch    # 不打补丁，只加载 gen2kr（旧方案）
+#   sudo bash 02-install.sh --no-kmod     # 只打补丁（用于已解锁过的场景）
+#   sudo bash 02-install.sh --no-reload   # 强制不重载 nvidia（同 push.sh）
 # ============================================================
 set -u
 
 # ============================================================
 # 1. 变量
 # ============================================================
-source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
-
+source "$(dirname "${BASH_SOURCE[0]}")/utils/lib_v1.sh"
 # 命令行选项
 DRY=0                   # 1 = 只打印计划
 DO_PATCH=1              # 0 = 跳过补丁（--no-patch）
@@ -86,11 +85,11 @@ precheck() {
         ok "MMIO 应答"
     else
         err "MMIO 无应答 —— 设备可能已 ZOMBIE，先整机重启"
-        echo "     判定工具：python3 bin/linkcap-audit.py"
+        echo "     判定工具：python3 check/linkcap-audit.py"
         return 1
     fi
 
-    ensure_build check || { err "探针未编译 → bash bin/build.sh"; return 1; }
+    ensure_build check || { err "探针未编译 → bash src/build.sh"; return 1; }
 
     # ★ 状态污染预检
     # 不能只看 "CAP2=0x0002 + TLS=1 + Gen1" —— 那是**原厂未解锁**的正常样子。
@@ -108,35 +107,37 @@ precheck() {
 
 # 第一步：打 2 字节补丁，并记录 .ko 是否真的变了
 step_patch() {
-    local before after
-
     if [ "${DO_PATCH}" != "1" ]; then
         hdr "1. 跳过补丁（--no-patch）"
         return 0
     fi
 
-    hdr "1. 应用 2 字节补丁"
-    echo "   目标：_nv017105rm 入口的 mode 范围检查"
-    echo "     127d66: lea -0x1(%rdx),%eax   →  lea -0x2(%rdx),%eax"
-    echo "     127d81: cmp \$0x2,%eax         →  cmp \$0x1,%eax"
-    echo "   效果：mode==1（Gen1）在入口直接 bail；mode 2/3 正常；≥4 与原逻辑等价"
+    # ★ 新架构：改**编译输入** → 重编安装，不再直接改 .ko。
+    #   直接改 .ko 会被任何一次 make / dkms install / 装新内核冲掉。
+    hdr "1. 修补编译输入 + 重编安装"
+    echo "   1a) nv-kernel.o_binary 的 2 字节（_nv017105rm 的 mode 白名单）"
+    echo "       127d66: lea -0x1(%rdx),%eax   →  lea -0x2(%rdx),%eax"
+    echo "       127d81: cmp \$0x2,%eax         →  cmp \$0x1,%eax"
+    echo "   1b) make 重编 nvidia.ko + 安装到装载位 + 同步 DKMS"
 
     if [ "${DRY}" = "1" ]; then
-        python3 "${PKG_ROOT}/bin/patch_no_gen1.py" check 2>&1 | sed 's/^/   /'
-        echo "   ${C_Y}[dry-run]${C_0} python3 bin/patch_no_gen1.py apply"
+        echo "   ${C_Y}[dry-run]${C_0} bash patches/<版本>/01-gen2-patch.sh check"
+        bash "${PATCH_DIR}/01-gen2-patch.sh" check 2>&1 | sed 's/^/   /'
+        echo "   ${C_Y}[dry-run]${C_0} bash patches/<版本>/04-build-nvidia.sh check"
+        echo
+        echo "   ${C_Y}[dry-run]${C_0} bash patches/<版本>/01-gen2-patch.sh apply"
+        echo "   ${C_Y}[dry-run]${C_0} bash patches/<版本>/04-build-nvidia.sh apply"
         return 0
     fi
 
-    before="$(md5sum "${KO}" | cut -d' ' -f1)"
-    python3 "${PKG_ROOT}/bin/patch_no_gen1.py" apply || { err "补丁失败"; return 1; }
-    after="$(md5sum "${KO}" | cut -d' ' -f1)"
+    bash "${PATCH_DIR}/01-gen2-patch.sh" apply || { err "打补丁失败"; return 1; }
 
-    if [ "${before}" != "${after}" ]; then
-        PATCH_CHANGED=1
-        ok "补丁是新写入的 ⇒ 需要重载 nvidia 才生效"
-    else
-        ok "补丁本来就在（.ko 未变）⇒ 不需要重载"
-    fi
+    echo
+    bash "${PATCH_DIR}/04-build-nvidia.sh" apply || { err "重编/安装失败"; return 1; }
+
+    # 换了模块就一定要重载（新 .ko 已在磁盘上，内核里还是旧的）
+    PATCH_CHANGED=1
+    ok "模块已重编并安装 ⇒ 需要重载 nvidia 才生效"
     return 0
 }
 
@@ -278,7 +279,7 @@ show_result() {
     if is_gen2; then
         ok "链路已是 Gen2"
         echo
-        echo "   下一步：sudo bash bin/30-verify.sh    （验证带宽 + 补丁是否真的接管）"
+        echo "   下一步：sudo bash check/30-verify.sh    （验证带宽 + 补丁是否真的接管）"
         return 0
     fi
 

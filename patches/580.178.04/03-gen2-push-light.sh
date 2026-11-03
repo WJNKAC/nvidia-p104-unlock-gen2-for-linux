@@ -13,7 +13,7 @@
 #       insmod gen2kr  →  unbind  →  bind   →  等链路到 Gen2
 #
 # ## 前提
-#   · 补丁已打（patch_no_gen1.py check 显示已打补丁）
+#   · 补丁已打（patch-gen2.py check 显示已打补丁）
 #   · nvidia 已加载（正常开机就是）
 #
 # ## 实测（reports/201）
@@ -26,16 +26,15 @@
 #   → 链路 5GT/s，pinned H2D 1.561 / D2H 1.708 GB/s
 #
 # 用法：
-#   sudo bash bin/push.sh
-#   sudo bash bin/push.sh --no-insmod    # gen2kr 已在内存里，只做 unbind/bind
+#   sudo bash patches/<版本>/03-gen2-push-light.sh
+#   sudo bash patches/<版本>/03-gen2-push-light.sh --no-insmod    # gen2kr 已在内存里，只做 unbind/bind
 # ============================================================
 set -u
 
 # ============================================================
 # 1. 变量
 # ============================================================
-source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
-
+source "$(dirname "${BASH_SOURCE[0]}")/../../utils/lib_v1.sh"
 DO_INSMOD=1             # 1 = 先 rmmod 再 insmod（清 triggered 标志）
 FORCE=0                 # 1 = --force，跳过链路状态前置检查
 WAIT_SECONDS=20         # 等链路升到 Gen2 的最长时间
@@ -56,7 +55,7 @@ parse_args() {
         "")          ;;
         *)
             err "未知参数 $1"
-            echo "   用法: sudo bash bin/push.sh [--no-insmod] [--force]"
+            echo "   用法: sudo bash patches/<版本>/03-gen2-push-light.sh [--no-insmod] [--force]"
             exit 2
             ;;
     esac
@@ -74,7 +73,7 @@ check_preconditions() {
     fi
     ok "nvidia 已加载（不会动它）"
 
-    patch_state="$(python3 "${PKG_ROOT}/bin/patch_no_gen1.py" check 2>/dev/null \
+    patch_state="$(python3 "${PATCH_DIR}/patch-gen2.py" check 2>/dev/null \
                    | grep -oE '未打补丁|已打补丁')"
 
     case "${patch_state}" in
@@ -82,7 +81,7 @@ check_preconditions() {
             ok "补丁在位" ;;
         未打补丁)
             err "补丁不在 —— 那 push 上去也会被驱动降回来"
-            echo "     先跑：sudo bash bin/20-install.sh   （它会 apply + 重载）"
+            echo "     先跑：sudo bash 02-install.sh   （它会 apply + 重载）"
             return 1 ;;
         *)
             warn "无法判定补丁状态，继续但可能无效" ;;
@@ -229,7 +228,7 @@ main() {
     parse_args "$@"
 
     need_root
-    ensure_build check || { err "探针未编译 → bash bin/build.sh"; exit "${EXIT_PRECHECK}"; }
+    ensure_build check || { err "探针未编译 → bash src/build.sh"; exit "${EXIT_PRECHECK}"; }
 
     echo "======================================================"
     echo " 轻量推送（不重载 nvidia）"

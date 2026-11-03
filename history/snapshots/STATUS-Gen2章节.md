@@ -18,7 +18,7 @@ LCAP2  = 0x0002             ← 声明没解锁      TLS = 1
 补上 `20-install.sh` → Gen2 + **pinned 1.559 / 1.707**。
 
 ⇒ **补丁 + gen2kr 是"保持"和"建立"两件事，缺一不可。**
-⇒ 每次重启后必须手动跑一次 `sudo bash bin/20-install.sh`（幂等，约 6 秒）。
+⇒ 每次重启后必须手动跑一次 `sudo bash 02-install.sh`（幂等，约 6 秒）。
 
 两种丢失后果不同：补丁丢→链路反复跳；**gen2kr 丢→开机就 0.78**（最常见故障）。
 
@@ -52,7 +52,7 @@ init 推送（未实现未验证）｜C systemd service（用户明确不要）�
 ```
 `(mode-2)>1` 无符号：mode=1 下溢 → **bail**；2/3 继续；≥4 bail（与原逻辑等价）。
 **唯一行为差异 = mode==1 从"执行"变"bail"。** bail 返回 `%r12d`=0=**CUDA_SUCCESS**。
-md5 `7f6805ed…` → `514de9d4…`；备份 `.orig_nogen1`；工具 `tools/patch_no_gen1.py`。
+md5 `7f6805ed…` → `514de9d4…`；备份 `.orig_nogen1`；工具 `tools/patch-gen2.py`。
 
 ### 决定性验证（摘掉守卫只留补丁）
 3 轮 cuInit + 再等 10s：**CAP2=0x0006 LNKSTA=2 TLS=2 SPEED=1，一次没掉**。

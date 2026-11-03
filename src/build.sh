@@ -13,16 +13,15 @@
 #   （.gen2kr.o.d: 权限不够）。
 #
 # 用法：
-#   bash bin/build.sh              # 全编
-#   bash bin/build.sh --user-only  # 只编用户态探针（任意机器）
+#   bash src/build.sh              # 全编
+#   bash src/build.sh --user-only  # 只编用户态探针（任意机器）
 # ============================================================
 set -u
 
 # ============================================================
 # 1. 变量
 # ============================================================
-source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
-
+source "$(dirname "${BASH_SOURCE[0]}")/../utils/lib_v1.sh"
 KERNEL_BUILD_DIR="/lib/modules/${KVER}/build"
 
 DO_USER_ONLY=0          # 1 = 只编用户态探针
@@ -181,7 +180,7 @@ show_products() {
     section "产物"
     ls -la build/
     echo
-    echo "下一步：sudo bash bin/10-check.sh    （自检，纯只读）"
+    echo "下一步：sudo bash check/10-check.sh    （自检，纯只读）"
 }
 
 # 解析命令行参数
@@ -191,7 +190,7 @@ parse_args() {
         "")          ;;
         *)
             echo "未知参数: $1" >&2
-            echo "用法: bash bin/build.sh [--user-only]" >&2
+            echo "用法: bash src/build.sh [--user-only]" >&2
             exit 2
             ;;
     esac
@@ -207,7 +206,7 @@ main() {
 
     if ! determine_compile_user; then
         echo "✗ 当前是 root 且拿不到 SUDO_USER，无法确定编译身份" >&2
-        echo "  请用普通用户跑：bash bin/build.sh" >&2
+        echo "  请用普通用户跑：bash src/build.sh" >&2
         exit 1
     fi
 

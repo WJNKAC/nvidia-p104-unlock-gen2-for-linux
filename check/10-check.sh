@@ -6,15 +6,14 @@
 #   设备在、驱动版本对、补丁工具能定位、探针能跑、寄存器状态是什么
 #
 # 用法：
-#   sudo bash bin/10-check.sh
+#   sudo bash check/10-check.sh
 # ============================================================
 set -u
 
 # ============================================================
 # 1. 变量
 # ============================================================
-source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
-
+source "$(dirname "${BASH_SOURCE[0]}")/../utils/lib_v1.sh"
 # gen2kr 可调参数（有则显示）
 GEN2KR_PARAMS=(guard_period_ms debounce_cnt retrain_min_ms speed_settle_ms stage_gap_ms)
 
@@ -41,7 +40,7 @@ check_driver() {
     else
         err "找不到 ${KO}"
         echo "     期望路径：/lib/modules/${KVER}/updates/dkms/nvidia.ko"
-        echo "     若驱动装在别处，请修改 bin/_common.sh 里的 KO"
+        echo "     若驱动装在别处，请修改 utils/lib_v1.sh 里的 KO"
     fi
 
     if [ -r /proc/driver/nvidia/version ]; then
@@ -86,7 +85,7 @@ check_registers() {
 check_patch_locator() {
     hdr "5. 补丁工具能否定位目标"
     [ -f "${KO}" ] || return 0
-    python3 "${PKG_ROOT}/bin/patch_no_gen1.py" check 2>&1 | sed 's/^/     /'
+    python3 "${PATCH_DIR}/patch-gen2.py" check 2>&1 | sed 's/^/     /'
 }
 
 # 检查探针是否编译好
@@ -96,13 +95,13 @@ check_probes() {
     if ensure_build check >/dev/null 2>&1; then
         ok "build/ 探针已就绪"
     else
-        warn "build/ 探针缺失 → 先跑 bin/build.sh"
+        warn "build/ 探针缺失 → 先跑 src/build.sh"
     fi
 
     if [ -f "${BUILD_DIR}/gen2kr.ko" ]; then
         ok "build/gen2kr.ko 已就绪"
     else
-        warn "build/gen2kr.ko 缺失 → 先跑 bin/build.sh"
+        warn "build/gen2kr.ko 缺失 → 先跑 src/build.sh"
     fi
 
     if [ -n "${KMOD_DIR}" ]; then
@@ -158,7 +157,7 @@ show_summary() {
     else
         echo " 当前状态：链路 Gen$([ "${speed}" = "1" ] && echo 1 || echo '?')，需要解锁"
     fi
-    echo " 下一步  ：sudo bash bin/20-install.sh --dry-run   先看计划"
+    echo " 下一步  ：sudo bash 02-install.sh --dry-run   先看计划"
     echo "======================================================"
 }
 

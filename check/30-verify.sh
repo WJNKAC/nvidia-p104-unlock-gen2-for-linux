@@ -9,17 +9,16 @@
 #   C. 补丁生效  摘掉守卫后链路仍保持（守卫零动作）
 #
 # 用法：
-#   sudo bash bin/30-verify.sh            # A + B（默认 5 轮）
-#   sudo bash bin/30-verify.sh 20         # A + B（20 轮）
-#   sudo bash bin/30-verify.sh --full     # 加做 C（会临时卸掉守卫）
+#   sudo bash check/30-verify.sh            # A + B（默认 5 轮）
+#   sudo bash check/30-verify.sh 20         # A + B（20 轮）
+#   sudo bash check/30-verify.sh --full     # 加做 C（会临时卸掉守卫）
 # ============================================================
 set -u
 
 # ============================================================
 # 1. 变量
 # ============================================================
-source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
-
+source "$(dirname "${BASH_SOURCE[0]}")/../utils/lib_v1.sh"
 ROUNDS=5                # B 阶段的轮数
 FULL=0                  # 1 = 加做 C 阶段（摘守卫）
 BW_SIZE_MB=512          # 带宽测试：单次大小
@@ -51,7 +50,7 @@ parse_args() {
                 FULL=1 ;;
             *[!0-9]*)
                 err "未知参数 ${a}"
-                echo "   用法: sudo bash bin/30-verify.sh [轮数] [--full]"
+                echo "   用法: sudo bash check/30-verify.sh [轮数] [--full]"
                 exit 2 ;;
             *)
                 ROUNDS="${a}" ;;
