@@ -64,12 +64,12 @@ fuser -v /dev/nvidia*      # ★ 有输出 → 先清掉那些程序，再往下
 > 装好 02 之后 `gen2kr` 常驻守卫，所以**先推 Gen2、再起 sddm** 可以两全 ——
 > 补丁在位时 `cuInit` 不再降级，Xorg 起回来链路仍保持 Gen2。
 
-所有补丁与内核模块都按**驱动版本**归档在 `drivers/` 下，目前只有
+所有补丁与内核模块都按**驱动版本**归档在 `patches/` 下，目前只有
 `580.178.04`（唯一完整验证过的组合）。**在版本目录里按编号顺序执行即可**，在执行前先行执行一下模块编译，即到对应 kernel 目录下执行make（脚本自动编译可能出错），
 不必回仓库根：
 
 ```bash
-cd drivers/580.178.04
+cd patches/580.178.04
 
 # 00 前置（可选）：解除受限 SKU —— 只影响帧率/功耗，与 Gen2 无关
 sudo bash 00-whitelist.sh check
@@ -97,7 +97,7 @@ sudo bash 00-whitelist.sh revert    # 如果第 0 步做过
 > 每一步重载 / 重启前都要再过一遍「⛔ 占用规则」（`fuser -v /dev/nvidia*`）。
 
 每个版本的完整说明（偏移表、原理、验证数据）见
-`drivers/<版本>/README.md`。想换到别的驱动版本，看 `drivers/README.md`
+`patches/<版本>/README.md`。想换到别的驱动版本，看 `patches/README.md`
 的定位方法 —— 偏移跟版本强绑定，**不能照搬**。
 
 ### 不想分步？
@@ -186,31 +186,6 @@ bail 跳到 `1280c8`，那是函数唯一的 return 点，返回 `%r12d` ——
 
 ---
 
-## 验证记录（2026-10-29 从零复现）
-
-在**干净原厂状态**（重启后 `md5=7f6805ed…`、无 gen2kr、链路 2.5GT/s）完整跑了一遍：
-
-| 步骤 | 结果 |
-|---|---|
-| `build.sh` | minictx / bwtest2 / gen2kr.ko(410440) 全部编译成功 |
-| `10-check.sh` | 正确报出原厂状态：`CAP2=0x0002 LNKSTA=1 TLS=1 SPEED=2 MAXSPD=1` |
-| `20-install.sh --dry-run` | md5 未变（零改动确认） |
-| `20-install.sh` | **一次成功** → `CAP2=0x0006 LNKSTA=2 TLS=2 SPEED=1 MAXSPD=2` |
-| `30-verify.sh --full` | A 带宽 **1.562/1.708 GB/s**、B 5 轮稳定、C 补丁独立性 通过 |
-
-### 复现过程中修掉的一个 bug
-`20-install.sh` 原本用「`CAP2=0x0002` + `TLS=1` + Gen1」判断"驱动侧锁死态"，
-但这**正是原厂未解锁的正常样子** —— 干净机器重启后必然触发误报。
-
-改成用 `is_stuck()`（在 `utils/lib_v1.sh`）判断真正的锁死态特征 ——
-**解锁位写过了但没生效**：
-
-```
-0x8841C 的 bit15|bit13|bit11 已置位（= 写过解锁，原厂 0xc0b40500 → & 0xA800 == 0）
-但 CAP2 仍是 0x0002（= 没锁存成功）
-且链路仍是 Gen1
-```
-
 ## ⚠ 重启后会回到 Gen1
 
 | 项 | 重启后 |
@@ -234,7 +209,7 @@ LNKSTA=1  LCAP2=0x0002  TLS=1  0x8841C=0xc0b40500
 sudo bash patches/<版本>/03-gen2-push-light.sh
 ```
 
-它等价于手动做这三步（★ 注意 `gen2kr.ko` 是编译产物，先跑过一次 `bin/build.sh`）：
+它等价于手动做这三步（★ 注意 `gen2kr.ko` 是编译产物，先跑过一次 `src/build.sh`）：
 
 ```bash
 sudo insmod build/gen2kr.ko                  # 相对仓库根目录
@@ -243,7 +218,7 @@ sudo sh -c 'echo 0000:01:00.0 > /sys/bus/pci/drivers/nvidia/unbind
             echo 0000:01:00.0 > /sys/bus/pci/drivers/nvidia/bind'
 ```
 
-> 如果把仓库放在别处，`bin/` 里的脚本不需要改 —— 它们用
+> 如果把仓库放在别处，仓库根与 `check/` `src/` 里的脚本不需要改 —— 它们用
 > `$(dirname $0)/..` 自己推导根目录。只有上面这段**手写**命令需要用你
 > 实际的仓库路径。
 
@@ -261,7 +236,7 @@ sudo sh -c 'echo 0000:01:00.0 > /sys/bus/pci/drivers/nvidia/unbind
 | 场景 | 要重载吗 |
 |---|---|
 | 刚 `patch-gen2.py apply`（.ko 变了） | **要** —— 不重载内核跑的还是旧代码 |
-| 重启后（补丁早在 .ko 里） | **不要** —— `push.sh` 就够 |
+| 重启后（补丁早在 .ko 里） | **不要** —— `03-gen2-push-light.sh` 就够 |
 | 补丁丢失后重新 apply | **要** |
 
 `02-install.sh` 会自动判断（比对 apply 前后 md5）：
@@ -276,15 +251,15 @@ sudo sh -c 'echo 0000:01:00.0 > /sys/bus/pci/drivers/nvidia/unbind
 |---|---|---|
 | **A. 手动**（当前） | 开机后跑 `patches/<版本>/03-gen2-push-light.sh`（约 3 秒，不重载 nvidia） | 无 |
 | B. modprobe softdep | 给 gen2kr 加 init 时推送 + `/etc/modprobe.d/nvidia.conf` 写 `softdep nvidia post: gen2kr` | 低。**未实现、未验证** |
-| C. systemd service | 装 `drivers/<版本>/kernel/<内核>/gen2kr.service` | 高（用户要求不装） |
+| C. systemd service | 装 `patches/<版本>/kernel/<内核>/gen2kr.service` | 高（用户要求不装） |
 
 详见 `docs/部署与持久化.md`。
 
 ## 快速开始（仓库根的一体化工具）
 
 > 与上面的分步脚本是**两条等价的路**：
-> 分步脚本（`drivers/<版本>/00/01/02`）按阶段拆开，适合看清每一步做了什么；
-> 这里的 `bin/` 是一体化封装，适合按顺序跑完。
+> 分步脚本（`patches/<版本>/00/01/02`）按阶段拆开，适合看清每一步做了什么；
+> 这里的 仓库根与 `check/` `src/` 是一体化封装，适合按顺序跑完。
 > 两者改的是同一批字节，**不要混着重复打**（脚本会检测状态并拒绝）。
 
 ```bash
@@ -327,150 +302,11 @@ bash src/build.sh --user-only      # 只编用户态探针
 
 ---
 
-## 手动复现（不用脚本，逐条命令）
-
-下面是最小可复现步骤。假设：
-- 你已经在**仓库根目录**（clone 下来的那个目录），下文用相对路径
-- 设备 `0000:01:00.0`
-- 驱动 `/lib/modules/$(uname -r)/updates/dkms/nvidia.ko`（若你的驱动装在别处，见 `utils/lib_v1.sh` 的 `KO`）
-
-### 步骤 0 —— 编译探针和模块
-
-> ★ 内核模块必须在**跑 P104 的那台机器**上编（用 `uname -r` 对应的内核头）。
-> ★ 不要用 `sudo` —— NFS root_squash 会让 make 报 `.gen2kr.o.d: 权限不够`。
-
-```bash
-mkdir -p build
-
-# 零 DMA 的上下文探针（只建/销毁 CUDA 上下文，用来观察是否触发降级）
-gcc -O2 -o build/minictx src/minictx.c -ldl
-
-# 带宽测试（★ 必须用 512MB×15，短测会踩坑，见下方"测量陷阱"）
-gcc -O2 -o build/bwtest2 src/bwtest2.c -ldl
-
-# 内核模块（★ 普通用户身份，不要 sudo）
-cd kmod
-make -C /lib/modules/$(uname -r)/build M=$PWD modules
-cp gen2kr.ko ../build/
-cd ..        # 回到仓库根目录，后面的命令都在这里执行
-```
-
-或者直接 `bash src/build.sh` 一次做完上面三件。
-
-### 步骤 1 —— 确认起始状态
-
-```bash
-# 设备在不在
-lspci -Dn | grep 10de:1b87
-
-# 看链路（"Speed 2.5GT/s" = 现在是 Gen1，需要解锁）
-lspci -vv -s 01:00.0 | grep -o 'LnkSta:.*'
-
-# 看寄存器（唯一可信判据）
-sudo python3 bin/peek-regs.py
-```
-
-期望输出（未解锁时）：
-```
-0x88084 = 0x00453c41   LNKCAP  MaxSpeed=1
-0x880a4 = 0x00000002   LNKCAP2 = 0x02  （仅声明 Gen1）
-0x88088 = 0x10410140   LNKSTA  CurSpeed=1
-0x8c040 = 0x20585800   SPEED=2（2.5GT/s）
-```
-
-### 步骤 2 —— 打补丁
-
-```bash
-# 先看补丁能不能唯一定位（会打印签名命中数和待改字节）
-sudo python3 patches/<版本>/patch-gen2.py check
-
-# 打补丁（自动备份到 nvidia.ko.orig_nogen1）
-sudo python3 patches/<版本>/patch-gen2.py apply
-```
-
-期望输出：
-```
-签名命中：原始形态 1 处，已补丁形态 0 处
-  定位到 0x127da6  （对应 .text 节内偏移 0x127d66）
-  lea imm8 @ 0x127da8 = 0xff
-  cmp imm8 @ 0x127dc3 = 0x02
-已备份 → .../nvidia.ko.orig_nogen1
-已写入: 8d 42 fe ... 83 f8 01 0f 87
-新 md5: 514de9d4fdd7c407a088f1baf4b62f04
-```
-
-### 步骤 3 —— 重载驱动（让补丁生效）
-
-```bash
-# 卸干净（Xorg / 任何 CUDA 进程都会占住 /dev/nvidia*）
-sudo rmmod nvidia_drm nvidia_modeset nvidia_uvm nvidia 2>/dev/null
-lsmod | grep -E '^nvidia' && echo "还有残留，先查 fuser -v /dev/nvidia*"
-
-# 重新加载
-sudo modprobe nvidia
-sudo modprobe nvidia_uvm
-```
-
-### 步骤 4 —— 解锁声明并推送
-
-```bash
-# 加载 gen2kr（它会在 nv_pci_probe 上挂 kretprobe）
-sudo insmod build/gen2kr.ko
-
-# 触发一次 probe：push 在 probe 返回瞬间执行
-sudo sh -c 'echo 0000:01:00.0 > /sys/bus/pci/drivers/nvidia/unbind'
-sleep 1
-sudo sh -c 'echo 0000:01:00.0 > /sys/bus/pci/drivers/nvidia/bind'
-
-# 等待并查看
-sleep 6
-lspci -vv -s 01:00.0 | grep -o 'LnkSta:.*'      # 期望 Speed 5GT/s
-sudo python3 bin/peek-regs.py                    # 期望 LNKSTA CurSpeed=2, CAP2=0x06
-sudo dmesg | grep gen2kr | tail -6               # 期望看到 "★ SUCCESS Gen2 LNKSTA=1042"
-```
-
-### 步骤 5 —— 验证
-
-```bash
-# A) 带宽（★ 必须 512MB×15）
-build/bwtest2 512 15 | grep pinned
-#   期望：pinned H2D med ~1.56   D2H med ~1.71  GB/s
-
-# B) 稳定性：连跑几次 CUDA 上下文，链路应该一次都不掉
-for i in 1 2 3 4 5; do
-    build/minictx 1 >/dev/null 2>&1
-    sleep 1
-    lspci -vv -s 01:00.0 | grep -o 'Speed [0-9.]*GT/s' | head -1
-done
-#   期望：5 次全是 "Speed 5GT/s"
-
-# C) 补丁独立性：摘掉守卫，链路还应该保持（证明补丁真的接管了）
-sudo rmmod gen2kr
-for i in 1 2 3; do build/minictx 1 >/dev/null 2>&1; sleep 1; done
-sleep 8
-lspci -vv -s 01:00.0 | grep -o 'LnkSta:.*'
-#   期望：仍是 Speed 5GT/s
-
-# 装回守卫（安全网）
-sudo insmod build/gen2kr.ko
-```
-
-### 步骤 6 —— 回滚
-
-```bash
-sudo rmmod gen2kr 2>/dev/null
-sudo python3 patches/<版本>/patch-gen2.py revert
-sudo rmmod nvidia_uvm nvidia_modeset nvidia_drm nvidia 2>/dev/null
-sudo modprobe nvidia && sudo modprobe nvidia_uvm
-```
-
----
-
 ## 测量陷阱（不读这段必踩）
 
 | 陷阱 | 后果 | 正确做法 |
 |---|---|---|
-| 用 `nvidia-smi` 看 PCIe 代数 | **它读驱动缓存**，寄存器已是 Gen2 也报 1 | 只看 `LNKSTA[3:0]`，用 `bin/peek-regs.py` |
+| 用 `nvidia-smi` 看 PCIe 代数 | **它读驱动缓存**，寄存器已是 Gen2 也报 1 | 只看 `LNKSTA[3:0]`，用 `check/peek-regs.py` |
 | `grep 'Speed 5GT/s'` | 会**误匹配 `Speed 2.5GT/s`**（子串） | 读寄存器，或 `grep -E 'Speed 5GT/s[^.]'` |
 | 用 `128MB×3` 测带宽 | 落在链路恢复窗口内，只测到 0.78 | **必须 `512MB×15`** |
 | 带着守卫测"补丁是否有效" | 测不出来 —— 守卫会把链路拉回来 | 先 `rmmod gen2kr` 再测 |
@@ -559,7 +395,7 @@ LnkCap MaxSpeed=1  +  CAP2=0x0002  +  TLS=1  +  LNKSTA 恒为 1
 │   ├── 30-verify.sh           链路/带宽验证（--full 加做补丁独立性）
 │   ├── peek-regs.py           打印 8 个关键寄存器
 │   ├── linkcap-audit.py       审计端点/根端口能力
-│   ├── verify_patch.py        在副本上验证补丁（不动线上文件）
+│   ├── verifyutils/patch_v1.py        在副本上验证补丁（不动线上文件）
 │   ├── probe-2241c.py         读 0x2241C 相关状态
 │   ├── unlock-decl.py         只做声明解锁 + 触发训练
 │   ├── force-gen2.py          反复 push 直到 Gen2（寄存器判定）
@@ -663,7 +499,7 @@ utils/lib_v1.sh      →  函数 read_regs_v1() / is_stuck_v1() ...
 
 ## 脚本结构约定
 
-`bin/` 下所有脚本统一成三段式，方便从上往下读：
+仓库根与 `check/` `src/` 下所有脚本统一成三段式，方便从上往下读：
 
 ```bash
 #!/bin/bash
@@ -695,48 +531,6 @@ main "$@"
 
 改脚本时请沿用这个结构。好处很直接：**看开头就知道有哪些可调参数，
 看 main 就知道执行顺序**，不用在长脚本里往下翻。
-
-## 关于 `drivers/`
-
-按**驱动版本**组织的补丁，思路参考 [vGPU-Unlock-patcher](https://github.com/VGPU-Community-Drivers/vGPU-Unlock-patcher)
-的 `patches/blob-<version>.diff` 约定。
-
-补丁改的是闭源二进制的具体字节，**偏移和驱动版本强绑定** —— 换版本必须重新定位，
-不能复用。所以每个版本一个目录，把「偏移 + 原始字节 + 验证数据」固定住。
-
-目前只有 `580.178.04` 一个版本，里面有三个补丁：
-
-| 补丁 | 解决 | 改动 |
-|---|---|---|
-| `gen2` | PCIe 带宽（Gen1 → Gen2） | `nvidia.ko`，2 字节 |
-| `delay` | 帧率卡 ~40fps（gr3d 每批延迟） | `libnvidia-glcore.so`，1 字节 |
-| `whitelist` | 同 delay，但改在内核源头 | `nv-kernel.o_binary`，10 字节 |
-
-每个版本目录里按编号排好了脚本，在目录里直接跑即可：
-
-```bash
-cd drivers/580.178.04
-sudo bash 00-whitelist.sh check     # 前置（可选）：受限 SKU 判定
-sudo bash 01-gen2-patch.sh check    # 必做：nvidia.ko 补丁
-sudo bash 02-gen2-push.sh status    # 必做：模块与链路状态
-```
-
-不干活的时候这张卡也一直挂在 P0、白烧 22 W。**有个 Xorg 占着它就进 P8（~7.8 W）**，
-而 sddm 的 X11 greeter 就是那个 Xorg —— 所以只要**关掉自动登录**，不用装任何东西：
-
-```ini
-# /etc/sddm.conf.d/*.conf
-[Autologin]
-Session=
-User=
-```
-
-自动登录时 sddm 会跳过 display server（`grep -c "Display server starting"` = 0），
-关掉之后它会起一个常驻的 Xorg（`-noreset`，父进程就是 sddm），登录后也不退出。
-
-⚠ Wayland 会话里的 `Xwayland` 不算 —— 实测有它时卡仍停在 P0。判据：`pgrep -x Xorg`。
-
-完整流程见 `drivers/580.178.04/README.md`。
 
 ## 关于 `history/`
 
@@ -775,8 +569,8 @@ RM 偏移在 6.12 上**未变**：`_nv017105rm` = `.text+0x127d60`。
 
 | 类别 | 说明 |
 |---|---|
-| 脚本（`bin/*.sh`、`bin/*.py`） | AI 编写 |
-| 内核模块（`drivers/<版本>/kernel/<内核>/gen2kr.c`） | AI 编写 |
+| 脚本（`check/` `src/` `patches/` `utils/` 下的 .sh / .py） | AI 编写 |
+| 内核模块（`patches/<版本>/kernel/<内核>/gen2kr.c`） | AI 编写 |
 | 二进制补丁（`patches/<版本>/patch-gen2.py` 及补丁本身） | AI 分析逆向、定位偏移、设计改法 |
 | 文档（`docs/*.md`、本 README） | AI 编写 |
 | 逆向分析结论（调用链、寄存器语义、能力位） | AI 通过 perf 断点 + 静态反汇编得出 |

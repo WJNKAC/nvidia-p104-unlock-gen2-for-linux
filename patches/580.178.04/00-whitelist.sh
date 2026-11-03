@@ -61,7 +61,7 @@ validate() {
     esac
 }
 
-# 生成 _patch.py 需要的 JSON 规格
+# 生成 utils/patch_v1.py 需要的 JSON 规格
 build_spec() {
     local edits="" i off dev
     for i in "${!WHITELIST_DEV_IDS[@]}"; do

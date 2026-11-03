@@ -4,8 +4,8 @@
 #
 # ## 合并来源
 #   本文件合并了原先重复的两个库：
-#     · utils/lib_v1.sh         （bin/ 下脚本用的）
-#     · drivers/<ver>/utils/_lib.sh（补丁脚本用的）
+#     · bin/_common.sh           （bin/ 下脚本用的）
+#     · drivers/<ver>/utils/utils/lib_v1.sh（补丁脚本用的）
 #   两者都定义 PKG_ROOT / KVER / ok-warn-err / _r / read_regs / cur_speed / need_root，
 #   且各自维护一份路径，改一处忘一处就会互相打脸（多卡 BDF 问题就是这么来的）。
 #   ⇒ 现在只有这一个库。

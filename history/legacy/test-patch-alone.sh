@@ -48,7 +48,7 @@ PY
 echo "======== 0. 起点 ========"
 echo "  $(st)"
 echo -n "  gen2kr: "; lsmod | grep -q '^gen2kr' && echo "已加载" || echo "未加载"
-echo -n "  补丁  : "; python3 "$D/bin/patch_no_gen1.py" check 2>/dev/null | grep -oE "未打补丁|已打补丁"
+echo -n "  补丁  : "; python3 "$D/bin/patch-gen2.py" check 2>/dev/null | grep -oE "未打补丁|已打补丁"
 
 echo
 echo "======== 1. 摘掉 gen2kr（确保没有任何推送者）========"

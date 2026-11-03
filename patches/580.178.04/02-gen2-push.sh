@@ -95,7 +95,7 @@ check_patch_applied() {
     return 0
 }
 
-# 给 _patch.py check 用的最小 spec（只查状态，不做别的）
+# 给 utils/patch_v1.py check 用的最小 spec（只查状态，不做别的）
 spec_gen2_for_check() {
     cat <<EOF
 {

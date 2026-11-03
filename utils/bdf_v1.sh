@@ -19,7 +19,7 @@
 # 导出：DEV_BDF（0000:01:00.0） DEV_SHORT（01:00.0） ROOT_BDF（上游根端口）
 #
 # 用法：
-#   source utils/bdf.sh              # 通常由 _lib.sh 代劳
+#   source utils/bdf.sh              # 通常由 utils/lib_v1.sh 代劳
 #   bash utils/bdf.sh                # 单独跑：只打印发现的 BDF
 # ============================================================
 

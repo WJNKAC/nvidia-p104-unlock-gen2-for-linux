@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""verify_patch.py —— 在副本上验证补丁字节与反汇编，不碰线上 .ko
+"""verifyutils/patch_v1.py —— 在副本上验证补丁字节与反汇编，不碰线上 .ko
 
 本机 /tmp 只有 10M（tmpfs），放不下 157MB 的 nvidia.ko，
 所以在 union 侧运行（/tmp 有 12G）。
 
-用法：python3 verify_patch.py
+用法：python3 verifyutils/patch_v1.py
 """
 import hashlib
 import os

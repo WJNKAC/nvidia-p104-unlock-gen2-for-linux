@@ -46,7 +46,7 @@
 处理方式：对全部 74 个已跟踪的 `.md` 做 `sed` 批量替换。
 
 **脚本没受影响** —— 确认过 `bin/*.sh` / `bin/*.py` / `kmod/*.c` 里没有硬编码 IP 或账号，
-路径全部通过 `_common.sh` 的 `$PKG_ROOT` 推导。
+路径全部通过 `utils/lib_v1.sh` 的 `$PKG_ROOT` 推导。
 
 ⚠ 注意：`history/` 里的报告是历史记录，脱敏只改了地址，**技术内容一字未动**。
 
@@ -74,7 +74,7 @@
 ### 3. `.gitignore` 的两处特意设计
 
 **排除**（可重建 / 每次运行都会变）：
-- `build/` —— `bin/build.sh` 会重新生成
+- `build/` —— `src/build.sh` 会重新生成
 - `kmod/*.o` `kmod/*.ko` 等 —— 编译产物
 - `logs/*.log` —— 但用 `!logs/复现-长跑-8min.log` 保留了复现证据
 

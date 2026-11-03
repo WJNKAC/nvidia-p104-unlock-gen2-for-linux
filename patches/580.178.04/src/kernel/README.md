@@ -62,11 +62,11 @@ gcc      14.2.0（与内核构建时一致）
 bash src/build.sh
 
 # 或手动（★ 不要用 sudo，产物会被 root 拥有）
-cd drivers/580.178.04/kernel/6.12.113
+cd patches/580.178.04/kernel/6.12.113
 make -C /lib/modules/$(uname -r)/build M=$PWD modules
 ```
 
-`bin/build.sh` 会自动找目录（优先匹配当前内核），编完把 `.ko` 拷到 `build/`。
+`src/build.sh` 会自动找目录（优先匹配当前内核），编完把 `.ko` 拷到 `build/`。
 
 ## 可调参数（insmod 后可在 /sys/module/gen2kr/parameters/ 看）
 
@@ -100,7 +100,7 @@ make -C /lib/modules/$(uname -r)/build M=$PWD modules
 - **clear-delay 项目**（用户态方案）：<https://github.com/WJNKAC/nvidia-p106-clear-delay>
 - **上游分析**（内核白名单思路）：<https://github.com/dartraiden/NVIDIA-patcher/issues/3>
 
-> 注：本仓库 `drivers/<版本>/00-whitelist.sh` 那个补丁能**从源头**解决它 ——
+> 注：本仓库 `patches/<版本>/00-whitelist.sh` 那个补丁能**从源头**解决它 ——
 > 打了之后延迟命令根本不生成。所以真要解决帧率问题，用 `whitelist` 比用户态补丁更彻底。
 
 ---

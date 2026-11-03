@@ -47,7 +47,7 @@ PY
 }
 
 echo "======== 0. 确认补丁在位 ========"
-python3 "$D/tools/patch_no_gen1.py" check 2>&1 | tail -3
+python3 "$D/tools/patch-gen2.py" check 2>&1 | tail -3
 
 echo
 echo "======== 1. 卸 gen2kr + nvidia ========"

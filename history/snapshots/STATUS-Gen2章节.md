@@ -15,7 +15,7 @@ LCAP2  = 0x0002             ← 声明没解锁      TLS = 1
 0x8841C= 0xc0b40500         ← 原厂默认
 带宽   = pinned 0.779 / 0.855   ← Gen1 水平
 ```
-补上 `20-install.sh` → Gen2 + **pinned 1.559 / 1.707**。
+补上 `02-install.sh` → Gen2 + **pinned 1.559 / 1.707**。
 
 ⇒ **补丁 + gen2kr 是"保持"和"建立"两件事，缺一不可。**
 ⇒ 每次重启后必须手动跑一次 `sudo bash 02-install.sh`（幂等，约 6 秒）。
